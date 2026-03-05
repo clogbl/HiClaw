@@ -1,0 +1,203 @@
+name: Integration Tests
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'manager/**'
+      - '.github/workflows/test-integration.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'manager/**'
+  workflow_dispatch:
+    inputs:
+      test_case:
+        description: 'Specific test case to run (e.g., test-02-create-worker.sh). Leave empty to run all tests.'
+        required: false
+        default: ''
+
+env:
+  # Registry settings
+  REGISTRY: higress-registry.cn-hangzhou.cr.aliyuncs.com
+  REPO: higress
+  VERSION: ci-${{ github.sha }}
+
+jobs:
+  # Build manager image first (required for tests)
+  build-manager:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+    
+    steps:
+      - name: Free Up GitHub Actions Ubuntu Runner Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          swap-storage: true
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Extract metadata
+        id: meta
+        run: |
+          SHA_SHORT=$(echo ${{ github.sha }} | cut -c1-7)
+          echo "sha_short=${SHA_SHORT}" >> $GITHUB_OUTPUT
+          echo "image_tag=ci-${SHA_SHORT}" >> $GITHUB_OUTPUT
+
+      # Build manager image for testing (linux/amd64 only for CI speed)
+      - name: Build and push manager image
+        run: |
+          make push-manager \
+            VERSION=${{ steps.meta.outputs.image_tag }} \
+            REGISTRY=${{ env.REGISTRY }} \
+            REPO=${{ env.REPO }} \
+            PLATFORMS=linux/amd64
+
+      - name: Summary
+        run: |
+          echo "### Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Manager Image: \`${{ env.REGISTRY }}/${{ env.REPO }}/hiclaw-manager:${{ steps.meta.outputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Platform: \`linux/amd64\` (CI only)" >> $GITHUB_STEP_SUMMARY
+
+  # Run integration tests
+  integration-tests:
+    needs: build-manager
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    
+    steps:
+      - name: Free Up GitHub Actions Ubuntu Runner Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          swap-storage: true
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq curl
+
+      - name: Run HiClaw installation
+        env:
+          HICLAW_LLM_API_KEY: ${{ secrets.HICLAW_LLM_API_KEY }}
+          HICLAW_MANAGER_IMAGE: ${{ env.REGISTRY }}/${{ env.REPO }}/hiclaw-manager:${{ needs.build-manager.outputs.image_tag }}
+        run: |
+          # Use the CI-built manager image
+          export MANAGER_IMAGE="${HICLAW_MANAGER_IMAGE}"
+          
+          # Install HiClaw
+          make install
+
+      - name: Wait for Manager to be ready
+        run: |
+          echo "Waiting for Manager to be healthy..."
+          for i in {1..60}; do
+            if docker exec hiclaw-manager curl -sf http://localhost:8001/health >/dev/null 2>&1; then
+              echo "Manager is healthy!"
+              exit 0
+            fi
+            echo "Waiting... ($i/60)"
+            sleep 5
+          done
+          echo "Manager did not become healthy in time"
+          exit 1
+
+      - name: Run integration tests
+        env:
+          HICLAW_LLM_API_KEY: ${{ secrets.HICLAW_LLM_API_KEY }}
+          TEST_MANAGER_CONTAINER: hiclaw-manager
+          TEST_GATEWAY_PORT: "18080"
+          TEST_ADMIN_PASSWORD: admin267fabc76cfe
+          TEST_MATRIX_DOMAIN: matrix-local.hiclaw.io:18080
+        run: |
+          # Run specific test or all tests
+          if [ -n "${{ github.event.inputs.test_case }}" ]; then
+            echo "Running specific test: ${{ github.event.inputs.test_case }}"
+            ./tests/${{ github.event.inputs.test_case }}
+          else
+            echo "Running all integration tests..."
+            ./tests/run-all-tests.sh
+          fi
+
+      - name: Collect test artifacts
+        if: always()
+        run: |
+          # Create artifacts directory
+          mkdir -p test-artifacts
+          
+          # Copy test output files
+          if [ -d "tests/output" ]; then
+            cp -r tests/output/* test-artifacts/ 2>/dev/null || true
+          fi
+          
+          # Collect Manager logs
+          docker logs hiclaw-manager > test-artifacts/manager.log 2>&1 || true
+          
+          # Collect Worker logs (if any)
+          for container in $(docker ps --format '{{.Names}}' | grep hiclaw-worker); do
+            docker logs "$container" > "test-artifacts/${container}.log" 2>&1 || true
+          done
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts-${{ github.sha }}
+          path: test-artifacts/
+          retention-days: 7
+
+      - name: Cleanup
+        if: always()
+        run: |
+          # Uninstall HiClaw
+          make uninstall || true
+          
+          # Clean up any remaining resources
+          docker system prune -af || true
+
+      - name: Test Summary
+        if: always()
+        run: |
+          echo "### Test Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Manager Image: \`${{ env.REGISTRY }}/${{ env.REPO }}/hiclaw-manager:${{ needs.build-manager.outputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Test artifacts uploaded to: \`test-artifacts-${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY

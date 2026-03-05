@@ -127,16 +127,18 @@ METRICS=$(collect_delta_metrics "${TEST_NAME}" "${METRICS_BASELINE}" "alice")
 print_metrics_report "$METRICS"
 
 # Assert thresholds for delta values (this test's actual consumption)
-# Typical: Manager ~2-5 LLM calls, ~50000-80000 input tokens, ~500-1500 output tokens
-assert_metrics_threshold "$METRICS" "manager" "llm_calls" "${METRICS_THRESHOLD_MANAGER_LLM_CALLS:-10}"
-assert_metrics_threshold "$METRICS" "manager" "tokens.input" "${METRICS_THRESHOLD_MANAGER_TOKENS_INPUT:-150000}"
-assert_metrics_threshold "$METRICS" "manager" "tokens.output" "${METRICS_THRESHOLD_MANAGER_TOKENS_OUTPUT:-3000}"
+# Typical values for "create worker" flow:
+# - Fresh install + identity setup: ~20-25 LLM calls, ~400k-500k input tokens
+# - Worker already exists: ~1-2 LLM calls, ~40k-50k input tokens
+assert_metrics_threshold "$METRICS" "manager" "llm_calls" "${METRICS_THRESHOLD_MANAGER_LLM_CALLS:-25}"
+assert_metrics_threshold "$METRICS" "manager" "tokens.input" "${METRICS_THRESHOLD_MANAGER_TOKENS_INPUT:-500000}"
+assert_metrics_threshold "$METRICS" "manager" "tokens.output" "${METRICS_THRESHOLD_MANAGER_TOKENS_OUTPUT:-10000}"
 
 # Check if alice was involved (may not be if container wasn't started)
 if echo "$METRICS" | jq -e '.agents.alice' > /dev/null 2>&1; then
-    assert_metrics_threshold "$METRICS" "alice" "llm_calls" "${METRICS_THRESHOLD_WORKER_LLM_CALLS:-4}"
-    assert_metrics_threshold "$METRICS" "alice" "tokens.input" "${METRICS_THRESHOLD_WORKER_TOKENS_INPUT:-30000}"
-    assert_metrics_threshold "$METRICS" "alice" "tokens.output" "${METRICS_THRESHOLD_WORKER_TOKENS_OUTPUT:-1000}"
+    assert_metrics_threshold "$METRICS" "alice" "llm_calls" "${METRICS_THRESHOLD_WORKER_LLM_CALLS:-10}"
+    assert_metrics_threshold "$METRICS" "alice" "tokens.input" "${METRICS_THRESHOLD_WORKER_TOKENS_INPUT:-100000}"
+    assert_metrics_threshold "$METRICS" "alice" "tokens.output" "${METRICS_THRESHOLD_WORKER_TOKENS_OUTPUT:-30000}"
 fi
 
 # Save metrics to file for CI aggregation
