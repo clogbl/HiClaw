@@ -39,17 +39,27 @@ bash /opt/hiclaw/agent/skills/worker-management/scripts/create-worker.sh \
   --skills <skill1>,<skill2>
 ```
 
+### Runtime Selection (MUST check before running create script)
+
+| Admin says (any of these keywords) | Runtime flag |
+|-------------------------------------|-------------|
+| "copaw", "CoPaw", "Python worker", "pip worker", "host worker" | `--runtime copaw` |
+| "openclaw", "container worker", "docker worker", or **none of the above** | _(default, no flag needed)_ |
+
+If the admin mentions "copaw" anywhere in the request, always pass `--runtime copaw`.
+
 ### Skills Recommendation Table
 
-| Worker Type | Recommended Skills |
-|-------------|-------------------|
-| Frontend Dev | `coding-cli,file-sync` |
-| Backend Dev | `coding-cli,file-sync,git-delegation` |
-| Full-stack Dev | `coding-cli,file-sync,git-delegation` |
-| DevOps / SRE | `github-operations,git-delegation` |
-| Code Review | `github-operations,git-delegation` |
-| Data / ML | `coding-cli,file-sync` |
-| General Purpose | `file-sync` |
+| Worker Type | Runtime | Recommended Skills |
+|-------------|---------|-------------------|
+| Frontend Dev | openclaw | `coding-cli,file-sync` |
+| Backend Dev | openclaw | `coding-cli,file-sync,git-delegation` |
+| Full-stack Dev | openclaw | `coding-cli,file-sync,git-delegation` |
+| DevOps / SRE | openclaw | `github-operations,git-delegation` |
+| Code Review | openclaw | `github-operations,git-delegation` |
+| Data / ML | openclaw | `coding-cli,file-sync` |
+| General Purpose | openclaw | `file-sync` |
+| CoPaw (Python) | copaw | `file-sync` |
 
 > **Note:** `file-sync` is always included automatically. `find-skills` can be added with `--find-skills` to let Worker discover skills on-demand.
 
@@ -88,6 +98,7 @@ Run AI coding CLI in a Worker's workspace on their behalf.
 
 Full lifecycle of Worker containers and skill assignments.
 
+- Admin says "create a copaw worker" or "create a copaw named Alice" → use `--runtime copaw` (see Runtime Selection table above)
 - Admin says "create a new Worker named Alice for code review tasks"
 - Before assigning a task, Worker container is `stopped` → wake it up first; `not_found` → tell admin to recreate
 - Admin says "add the github-operations skill to Alice" or "reset the Bob worker"
