@@ -45,15 +45,13 @@ bash /opt/hiclaw/agent/skills/worker-management/scripts/create-worker.sh \
 
 ### Skills by Worker Type (quick lookup)
 
-| Worker Type | Runtime | Skills |
-|-------------|---------|--------|
-| Frontend | openclaw | `coding-cli,file-sync` |
-| Backend | openclaw | `coding-cli,file-sync,git-delegation` |
-| DevOps | openclaw | `github-operations,git-delegation` |
-| General | openclaw | `file-sync` |
-| CoPaw (Python) | copaw | `file-sync` |
+| Worker Type | Skills | Flags |
+|-------------|--------|-------|
+| Development (coding, DevOps, review) | `coding-cli,github-operations,git-delegation` | `--find-skills` |
+| Data / Analysis | `coding-cli` | `--find-skills` |
+| General Purpose | _(default)_ | `--find-skills` |
 
-> `file-sync` is auto-included. Use `--find-skills` to enable on-demand skill discovery.
+> `file-sync` is auto-included. `--find-skills` lets the Worker discover additional skills on-demand. Trim skills that clearly don't apply.
 
 ---
 

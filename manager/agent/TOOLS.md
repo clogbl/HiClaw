@@ -50,18 +50,13 @@ If the admin mentions "copaw" anywhere in the request, always pass `--runtime co
 
 ### Skills Recommendation Table
 
-| Worker Type | Runtime | Recommended Skills |
-|-------------|---------|-------------------|
-| Frontend Dev | openclaw | `coding-cli,file-sync` |
-| Backend Dev | openclaw | `coding-cli,file-sync,git-delegation` |
-| Full-stack Dev | openclaw | `coding-cli,file-sync,git-delegation` |
-| DevOps / SRE | openclaw | `github-operations,git-delegation` |
-| Code Review | openclaw | `github-operations,git-delegation` |
-| Data / ML | openclaw | `coding-cli,file-sync` |
-| General Purpose | openclaw | `file-sync` |
-| CoPaw (Python) | copaw | `file-sync` |
+| Worker Type | Skills | Flags |
+|-------------|--------|-------|
+| Development (coding, DevOps, review) | `coding-cli,github-operations,git-delegation` | `--find-skills` |
+| Data / Analysis | `coding-cli` | `--find-skills` |
+| General Purpose | _(default)_ | `--find-skills` |
 
-> **Note:** `file-sync` is always included automatically. `find-skills` can be added with `--find-skills` to let Worker discover skills on-demand.
+> `file-sync` is always auto-included. `--find-skills` lets the Worker discover and install additional skills on-demand. Trim skills that clearly don't apply (e.g., drop `github-operations` for a pure frontend worker).
 
 ---
 
