@@ -73,7 +73,7 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-Expression ((New-Object
 
 第四步：选择大模型服务商。选择百炼，您也可以接入其他支持 OpenAPI 协议的模型服务，目前 Anthropic 协议还未支持，排期中。
 
-第五步：选择模型接口。百炼 Coding Plan 和百炼通用接口有所不同，这里我们选择 Coding Plan 接口。[购买Coding Plan](https://bailian.console.aliyun.com/cn-beijing/?tab=coding-plan#/efm/index)
+第五步：选择模型接口。百炼 Coding Plan 和百炼通用接口有所不同，这里我们选择 Coding Plan 接口。[购买Coding Plan](https://bailian.console.aliyun.com/cn-beijing/?source_channel=4qjGAvs1Pl&tab=coding-plan#/efm/index)
 
 第六步：选择模型系列。如果第五步中选择的是百炼 Coding Plan，您可以选择 qwen3.5-plus、GLM，等 Matrix room 建立起来后，还通过发送指令，让 Manager 切换其他到模型。
 
