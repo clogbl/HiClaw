@@ -108,6 +108,16 @@ function Write-Warning {
     Write-Host "$($script:ESC)[33m[HiClaw WARNING]$($script:ESC)[0m $Message"
 }
 
+# Pause before exit on error so user can read the message when running via double-click
+function Exit-Script {
+    param([int]$ExitCode = 0)
+    if ($ExitCode -ne 0 -and -not $script:HICLAW_NON_INTERACTIVE) {
+        Write-Host ""
+        Read-Host "Press Enter to exit"
+    }
+    exit $ExitCode
+}
+
 function Test-DockerRunning {
     try {
         $null = docker info 2>&1
@@ -843,7 +853,7 @@ function Test-LlmConnectivity {
             $confirm = Read-Host (Get-Msg "llm.openai.test.confirm")
             if ($confirm -ne "y" -and $confirm -ne "Y") {
                 Write-Log (Get-Msg "llm.openai.test.aborted")
-                exit 1
+                Exit-Script 1
             }
         }
     }
@@ -1214,12 +1224,12 @@ function Install-Manager {
         $dockerCmd = "podman"
     } else {
         Write-Host "$($script:ESC)[31m[HiClaw ERROR]$($script:ESC)[0m $(Get-Msg 'error.docker_not_found')" -ForegroundColor Red
-        exit 1
+        Exit-Script 1
     }
 
     if (-not (Test-DockerRunning)) {
         Write-Host "$($script:ESC)[31m[HiClaw ERROR]$($script:ESC)[0m $(Get-Msg 'error.docker_not_running')" -ForegroundColor Red
-        exit 1
+        Exit-Script 1
     }
 
     # Initialize config hashtable
@@ -2043,16 +2053,24 @@ function Uninstall-HiClaw {
 # Main Entry Point
 # ============================================================
 
-switch ($Command) {
-    "manager" {
-        Install-Manager
+try {
+    switch ($Command) {
+        "manager" {
+            Install-Manager
+        }
+        "worker" {
+            Install-Worker -Name $Name -Fs $Fs -FsKey $FsKey -FsSecret $FsSecret -Reset:$Reset -FindSkills:$FindSkills -SkillsApiUrl $SkillsApiUrl
+        }
+        "uninstall" {
+            Uninstall-HiClaw
+        }
     }
-    "worker" {
-        Install-Worker -Name $Name -Fs $Fs -FsKey $FsKey -FsSecret $FsSecret -Reset:$Reset -FindSkills:$FindSkills -SkillsApiUrl $SkillsApiUrl
+} catch {
+    if (-not $script:HICLAW_NON_INTERACTIVE) {
+        Write-Host ""
+        Read-Host "Press Enter to exit"
     }
-    "uninstall" {
-        Uninstall-HiClaw
-    }
+    exit 1
 }
 
 # Stop transcript logging
