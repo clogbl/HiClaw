@@ -84,13 +84,15 @@ No need to set defaults - these are always available in the container environmen
 
 Before anything else, determine which runtime to use based on the admin's request. This step is **mandatory** — never skip it.
 
-| Admin says (any of these keywords) | Runtime |
-|-------------------------------------|---------|
-| "copaw", "CoPaw", "Python worker", "pip worker", "host worker", "pip install" | `copaw` |
-| "openclaw", "container worker", "docker worker", or **none of the above** | `openclaw` (default) |
+| Admin says (any of these keywords) | Runtime | Flags |
+|-------------------------------------|---------|-------|
+| "copaw", "CoPaw", "Python worker", "pip worker", "host worker", "pip install" | `copaw` | |
+| "local worker", "local mode", "access my local environment", "run on my machine", "operate locally", "local" (referring to the admin's own machine) | `copaw` | `--remote` |
+| "openclaw", "container worker", "docker worker", or **none of the above** | `openclaw` (default) | |
 
 **Rules:**
 - If the admin mentions "copaw" anywhere in the request (e.g., "帮我创建一个 copaw"、"create a copaw worker"), use `--runtime copaw`. Do NOT fall through to the default openclaw path.
+- If the admin mentions "local" / "本地" / "local mode" / "local environment" / "run on my machine" — meaning they want the Worker to run as a native process on their own machine with local environment access — always use `--runtime copaw --remote`. This outputs a `pip install copaw-worker && copaw-worker ...` command for the admin to run directly. The `--remote` flag means "remote from the Manager" (i.e., not a Manager-managed container), which is actually **local from the admin's perspective**.
 - If the admin does not mention any runtime keyword, use `${HICLAW_DEFAULT_WORKER_RUNTIME:-openclaw}` as the default.
 - When in doubt, ask the admin: "Should this be a copaw (Python, ~150MB RAM) worker or an openclaw (Node.js, ~500MB RAM) worker?"
 

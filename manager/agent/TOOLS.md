@@ -50,7 +50,9 @@ Default runtime is set by `HICLAW_DEFAULT_WORKER_RUNTIME` (chosen during install
 - The admin requests a specific runtime (e.g., "create a copaw worker" → `--runtime copaw`)
 - You recommend a specific runtime to solve a problem (see below)
 
-**Local environment access:** If the admin wants the Worker to interact with their local machine (e.g., open a browser, run desktop apps, access local files), recommend `--runtime copaw --remote`. This installs the Worker directly on the admin's machine so it can access the local environment. Ask the admin to confirm before proceeding.
+**Local environment access:** If the admin wants the Worker to operate on their local machine — e.g., "create a local worker", "create a worker in local mode", "I want a worker that can access my local environment", open a browser, run desktop apps, access local files, run local commands, or interact with the host OS — always recommend `--runtime copaw --remote`. This outputs a `pip install copaw-worker && copaw-worker ...` command that the admin runs directly on their machine, so the Worker process lives on the admin's host and has full local access. Ask the admin to confirm before proceeding.
+
+> **Terminology note:** `--remote` means "remote from the Manager's perspective" (i.e., not a container managed by the Manager). From the admin's perspective, this is actually the **local** deployment — the Worker runs as a native process on the admin's own machine.
 
 ### Skills Recommendation Table
 
@@ -92,7 +94,7 @@ Full lifecycle of Worker containers and skill assignments.
 
 - Admin says "create a copaw worker" or "create a copaw named Alice" → use `--runtime copaw`
 - Admin says "create a new Worker named Alice for code review tasks" → use default runtime (no `--runtime` flag)
-- Admin wants Worker to control their local machine → recommend `--runtime copaw --remote`
+- Admin says "local worker", "local mode", "access my local environment", "run on my machine", or wants Worker to control their local machine → always use `--runtime copaw --remote` (outputs a `pip install copaw-worker` command for the admin to run locally)
 - Before assigning a task, Worker container is `stopped` → wake it up first; `not_found` → tell admin to recreate
 - Admin says "add the github-operations skill to Alice" or "reset the Bob worker"
 
