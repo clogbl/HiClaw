@@ -54,8 +54,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
 RUN git clone --depth 1 --single-branch \
         https://github.com/johnlanni/openclaw.git /opt/openclaw && \
     cd /opt/openclaw && \
-    git fetch --depth 1 origin 685223ff3d9182fb79cdce6cc05e9014bb79dfdf && \
-    git checkout 685223ff3d9182fb79cdce6cc05e9014bb79dfdf && \
+    git fetch --depth 1 origin eb6b412b8bf59da7f26566cb1699a54eb7d0bc2f && \
+    git checkout eb6b412b8bf59da7f26566cb1699a54eb7d0bc2f && \
     pnpm config set registry ${NPM_REGISTRY} && \
     pnpm install && \
     pnpm build && \

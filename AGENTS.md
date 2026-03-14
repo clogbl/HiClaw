@@ -35,6 +35,35 @@ hiclaw/
 - [install/hiclaw-install.sh](install/hiclaw-install.sh) -- the installation script
 - [scripts/replay-task.sh](scripts/replay-task.sh) -- send tasks to Manager via Matrix CLI
 
+### Local full build (from source)
+
+The image dependency chain is: `openclaw-base` → `manager` / `worker`. CoPaw worker is independent.
+
+By default, `OPENCLAW_BASE_IMAGE` points to the remote registry (`higress-registry.cn-hangzhou.cr.aliyuncs.com/higress/openclaw-base`). When building locally from a modified `openclaw-base`, you **must** override it to the local image name so that manager/worker actually use your local base:
+
+```bash
+# Step 1: Build openclaw-base
+make build-openclaw-base
+
+# Step 2: Build manager, worker, copaw-worker using the LOCAL base
+make build-manager build-worker build-copaw-worker \
+    OPENCLAW_BASE_IMAGE=hiclaw/openclaw-base \
+    OPENCLAW_BASE_VERSION=latest
+```
+
+**Common pitfall**: Running `make build-manager build-worker OPENCLAW_BASE_VERSION=latest` without `OPENCLAW_BASE_IMAGE=hiclaw/openclaw-base` will pull the remote registry's `:latest` tag instead of using the locally-built image. Always set both variables together for local builds.
+
+**Proxy support**: If behind a proxy, pass build args (use `host.containers.internal` for Podman on macOS):
+```bash
+make build-openclaw-base DOCKER_BUILD_ARGS="\
+    --build-arg HTTP_PROXY=http://host.containers.internal:1087 \
+    --build-arg HTTPS_PROXY=http://host.containers.internal:1087 \
+    --build-arg http_proxy=http://host.containers.internal:1087 \
+    --build-arg https_proxy=http://host.containers.internal:1087"
+```
+
+**APT mirror**: `openclaw-base/Dockerfile` accepts `APT_MIRROR` build arg (default: empty = official Ubuntu sources). Set `APT_MIRROR=mirrors.aliyun.com` for China acceleration without proxy.
+
 ### To modify the Manager container
 - [manager/Dockerfile](manager/Dockerfile) -- multi-stage build definition
 - [manager/supervisord.conf](manager/supervisord.conf) -- process orchestration
