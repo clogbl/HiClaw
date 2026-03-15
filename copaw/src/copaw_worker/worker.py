@@ -293,6 +293,13 @@ class Worker:
         active_skills_dir = self._copaw_working_dir / "active_skills"
         active_skills_dir.mkdir(parents=True, exist_ok=True)
 
+        # 0. Remove stale customized_skills that duplicate builtins.
+        #    After an upgrade the new CoPaw image may ship builtins (pdf, pptx …)
+        #    that were previously only available as customized copies.  If the old
+        #    customized_skills/ directory persists on disk, CoPaw loads both the
+        #    builtin AND the customized copy, causing duplicates in the UI.
+        self._dedup_customized_skills()
+
         # 1. Seed CoPaw built-in skills as base layer.
         # bridge.py has already patched copaw.constant.ACTIVE_SKILLS_DIR to point
         # here, so sync_skills_to_working_dir() writes to the correct directory.
@@ -322,6 +329,47 @@ class Worker:
             logger.info("Installed MinIO skill: %s", skill_name)
 
         console.print(f"[green]Skills installed: {', '.join(skill_names)}[/green]")
+
+    def _dedup_customized_skills(self) -> None:
+        """Remove customized skills that shadow CoPaw builtins.
+
+        CoPaw discovers skills from two independent directories:
+          - builtin:     <site-packages>/copaw/agents/skills/<name>/
+          - customized:  <working_dir>/customized_skills/<name>/
+
+        After an upgrade, new builtins may overlap with stale customized copies
+        left over from a previous version.  This method detects the overlap and
+        removes the customized copy so only the (newer) builtin is loaded.
+        """
+        customized_dir = self._copaw_working_dir / "customized_skills"
+        if not customized_dir.is_dir():
+            return
+
+        # Collect builtin skill names from the installed copaw package
+        try:
+            import copaw.agents.skills as _skills_pkg
+            builtin_skills_root = Path(_skills_pkg.__file__).resolve().parent
+        except (ImportError, AttributeError):
+            return
+
+        builtin_names: set[str] = set()
+        if builtin_skills_root.is_dir():
+            for child in builtin_skills_root.iterdir():
+                if child.is_dir() and not child.name.startswith("_"):
+                    builtin_names.add(child.name)
+
+        if not builtin_names:
+            return
+
+        # Remove customized copies that duplicate a builtin
+        import shutil
+        for child in list(customized_dir.iterdir()):
+            if child.is_dir() and child.name in builtin_names:
+                shutil.rmtree(child)
+                logger.info(
+                    "Removed stale customized skill '%s' (now a builtin)",
+                    child.name,
+                )
 
     # ------------------------------------------------------------------
     # MatrixChannel installation
