@@ -269,6 +269,27 @@ msg() {
         "install.reinstall.cleanup_done.en") text="Cleanup complete. Starting fresh installation..." ;;
         "install.reinstall.failed_rm_workspace.zh") text="无法移除工作空间目录" ;;
         "install.reinstall.failed_rm_workspace.en") text="Failed to remove workspace directory" ;;
+        # --- Orphan volume detection ---
+        "install.orphan_volume.detected.zh") text="⚠️  检测到残留数据卷 '%s'，但未找到对应的 env 配置文件。" ;;
+        "install.orphan_volume.detected.en") text="⚠️  Found leftover data volume '%s' but no matching env config file." ;;
+        "install.orphan_volume.warn.zh") text="这可能是之前安装的残留数据，会导致新安装出现异常（如密码冲突、服务启动失败）。" ;;
+        "install.orphan_volume.warn.en") text="This is likely leftover data from a previous installation and may cause issues (e.g., credential conflicts, service startup failures)." ;;
+        "install.orphan_volume.choose.zh") text="选择操作:" ;;
+        "install.orphan_volume.choose.en") text="Choose an action:" ;;
+        "install.orphan_volume.clean.zh") text="  1) 清理残留数据卷后继续安装（推荐）" ;;
+        "install.orphan_volume.clean.en") text="  1) Remove leftover volume and continue installation (recommended)" ;;
+        "install.orphan_volume.keep.zh") text="  2) 保留数据卷继续安装（可能出现异常）" ;;
+        "install.orphan_volume.keep.en") text="  2) Keep the volume and continue installation (may cause issues)" ;;
+        "install.orphan_volume.prompt.zh") text="请选择 [1/2]" ;;
+        "install.orphan_volume.prompt.en") text="Enter choice [1/2]" ;;
+        "install.orphan_volume.cleaning.zh") text="正在清理残留数据卷..." ;;
+        "install.orphan_volume.cleaning.en") text="Removing leftover data volume..." ;;
+        "install.orphan_volume.cleaned.zh") text="残留数据卷已清理。继续全新安装..." ;;
+        "install.orphan_volume.cleaned.en") text="Leftover volume removed. Continuing with fresh installation..." ;;
+        "install.orphan_volume.keeping.zh") text="保留数据卷，继续安装。如遇异常请选择全新重装。" ;;
+        "install.orphan_volume.keeping.en") text="Keeping existing volume. If you encounter issues, consider a clean reinstall." ;;
+        "install.orphan_volume.clean_noninteractive.zh") text="非交互模式: 自动清理残留数据卷..." ;;
+        "install.orphan_volume.clean_noninteractive.en") text="Non-interactive mode: automatically removing leftover volume..." ;;
         # --- Loading existing config ---
         "install.loading_config.zh") text="从 %s 加载已有配置（shell 环境变量优先）..." ;;
         "install.loading_config.en") text="Loading existing config from %s (shell env vars take priority)..." ;;
@@ -1320,6 +1341,54 @@ install_manager() {
                 exit 0
                 ;;
         esac
+    else
+        # --- Orphan volume detection (env file gone but volume remains) ---
+        local data_vol="${HICLAW_DATA_DIR:-hiclaw-data}"
+        if ${DOCKER_CMD} volume ls -q | grep -q "^${data_vol}$"; then
+            echo ""
+            log "$(msg install.orphan_volume.detected "${data_vol}")"
+            log "$(msg install.orphan_volume.warn)"
+
+            if [ "${HICLAW_NON_INTERACTIVE}" = "1" ]; then
+                log "$(msg install.orphan_volume.clean_noninteractive)"
+                # Stop containers that may reference the volume
+                ${DOCKER_CMD} stop hiclaw-manager 2>/dev/null || true
+                ${DOCKER_CMD} rm hiclaw-manager 2>/dev/null || true
+                for w in $(${DOCKER_CMD} ps -a --format '{{.Names}}' | grep "^hiclaw-worker-" || true); do
+                    ${DOCKER_CMD} stop "${w}" 2>/dev/null || true
+                    ${DOCKER_CMD} rm "${w}" 2>/dev/null || true
+                done
+                log "$(msg install.orphan_volume.cleaning)"
+                ${DOCKER_CMD} volume rm "${data_vol}" 2>/dev/null || true
+                log "$(msg install.orphan_volume.cleaned)"
+            else
+                echo ""
+                echo "$(msg install.orphan_volume.choose)"
+                echo "$(msg install.orphan_volume.clean)"
+                echo "$(msg install.orphan_volume.keep)"
+                echo ""
+                read -e -p "$(msg install.orphan_volume.prompt): " ORPHAN_CHOICE
+                ORPHAN_CHOICE="${ORPHAN_CHOICE:-1}"
+
+                case "${ORPHAN_CHOICE}" in
+                    1|clean)
+                        # Stop containers that may reference the volume
+                        ${DOCKER_CMD} stop hiclaw-manager 2>/dev/null || true
+                        ${DOCKER_CMD} rm hiclaw-manager 2>/dev/null || true
+                        for w in $(${DOCKER_CMD} ps -a --format '{{.Names}}' | grep "^hiclaw-worker-" || true); do
+                            ${DOCKER_CMD} stop "${w}" 2>/dev/null || true
+                            ${DOCKER_CMD} rm "${w}" 2>/dev/null || true
+                        done
+                        log "$(msg install.orphan_volume.cleaning)"
+                        ${DOCKER_CMD} volume rm "${data_vol}" 2>/dev/null || true
+                        log "$(msg install.orphan_volume.cleaned)"
+                        ;;
+                    2|keep)
+                        log "$(msg install.orphan_volume.keeping)"
+                        ;;
+                esac
+            fi
+        fi
     fi
 
     # Load existing env file as fallback (shell env vars take priority)

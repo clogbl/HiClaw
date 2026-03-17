@@ -260,6 +260,18 @@ $script:Messages = @{
     "install.reinstall.cleanup_done" = @{ zh = "清理完成。开始全新安装..."; en = "Cleanup complete. Starting fresh installation..." }
     "install.reinstall.failed_rm_workspace" = @{ zh = "无法移除工作空间目录"; en = "Failed to remove workspace directory" }
 
+    # --- Orphan volume detection ---
+    "install.orphan_volume.detected" = @{ zh = "⚠️  检测到残留数据卷 '{0}'，但未找到对应的 env 配置文件。"; en = "⚠️  Found leftover data volume '{0}' but no matching env config file." }
+    "install.orphan_volume.warn" = @{ zh = "这可能是之前安装的残留数据，会导致新安装出现异常（如密码冲突、服务启动失败）。"; en = "This is likely leftover data from a previous installation and may cause issues (e.g., credential conflicts, service startup failures)." }
+    "install.orphan_volume.choose" = @{ zh = "选择操作:"; en = "Choose an action:" }
+    "install.orphan_volume.clean" = @{ zh = "  1) 清理残留数据卷后继续安装（推荐）"; en = "  1) Remove leftover volume and continue installation (recommended)" }
+    "install.orphan_volume.keep" = @{ zh = "  2) 保留数据卷继续安装（可能出现异常）"; en = "  2) Keep the volume and continue installation (may cause issues)" }
+    "install.orphan_volume.prompt" = @{ zh = "请选择 [1/2]"; en = "Enter choice [1/2]" }
+    "install.orphan_volume.cleaning" = @{ zh = "正在清理残留数据卷..."; en = "Removing leftover data volume..." }
+    "install.orphan_volume.cleaned" = @{ zh = "残留数据卷已清理。继续全新安装..."; en = "Leftover volume removed. Continuing with fresh installation..." }
+    "install.orphan_volume.keeping" = @{ zh = "保留数据卷，继续安装。如遇异常请选择全新重装。"; en = "Keeping existing volume. If you encounter issues, consider a clean reinstall." }
+    "install.orphan_volume.clean_noninteractive" = @{ zh = "非交互模式: 自动清理残留数据卷..."; en = "Non-interactive mode: automatically removing leftover volume..." }
+
     # --- Loading existing config ---
     "install.loading_config" = @{ zh = "从 {0} 加载已有配置（shell 环境变量优先）..."; en = "Loading existing config from {0} (shell env vars take priority)..." }
 
@@ -1388,6 +1400,57 @@ function Install-Manager {
                     # Only set if not already in environment
                     if (-not [Environment]::GetEnvironmentVariable($key)) {
                         [Environment]::SetEnvironmentVariable($key, $value, "Process")
+                    }
+                }
+            }
+        }
+    }
+    else {
+        # --- Orphan volume detection (env file gone but volume remains) ---
+        $dataVol = if ($env:HICLAW_DATA_DIR) { $env:HICLAW_DATA_DIR } else { "hiclaw-data" }
+        $volumeExists = docker volume ls -q 2>$null | Select-String "^${dataVol}$"
+        if ($volumeExists) {
+            Write-Host ""
+            Write-Log (Get-Msg "install.orphan_volume.detected" -f $dataVol)
+            Write-Log (Get-Msg "install.orphan_volume.warn")
+
+            if ($script:HICLAW_NON_INTERACTIVE) {
+                Write-Log (Get-Msg "install.orphan_volume.clean_noninteractive")
+                # Stop containers that may reference the volume
+                docker stop hiclaw-manager *>$null
+                docker rm hiclaw-manager *>$null
+                docker ps -a --format "{{.Names}}" 2>$null | Select-String "^hiclaw-worker-" | ForEach-Object {
+                    docker stop $_.ToString().Trim() *>$null
+                    docker rm $_.ToString().Trim() *>$null
+                }
+                Write-Log (Get-Msg "install.orphan_volume.cleaning")
+                docker volume rm $dataVol *>$null
+                Write-Log (Get-Msg "install.orphan_volume.cleaned")
+            }
+            else {
+                Write-Host ""
+                Write-Host (Get-Msg "install.orphan_volume.choose")
+                Write-Host (Get-Msg "install.orphan_volume.clean")
+                Write-Host (Get-Msg "install.orphan_volume.keep")
+                Write-Host ""
+                $orphanChoice = Read-Host (Get-Msg "install.orphan_volume.prompt")
+                if (-not $orphanChoice) { $orphanChoice = "1" }
+
+                switch -Regex ($orphanChoice) {
+                    "^(1|clean)$" {
+                        # Stop containers that may reference the volume
+                        docker stop hiclaw-manager *>$null
+                        docker rm hiclaw-manager *>$null
+                        docker ps -a --format "{{.Names}}" 2>$null | Select-String "^hiclaw-worker-" | ForEach-Object {
+                            docker stop $_.ToString().Trim() *>$null
+                            docker rm $_.ToString().Trim() *>$null
+                        }
+                        Write-Log (Get-Msg "install.orphan_volume.cleaning")
+                        docker volume rm $dataVol *>$null
+                        Write-Log (Get-Msg "install.orphan_volume.cleaned")
+                    }
+                    "^(2|keep)$" {
+                        Write-Log (Get-Msg "install.orphan_volume.keeping")
                     }
                 }
             }
