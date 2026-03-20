@@ -234,12 +234,6 @@ jobs:
           mkdir -p test-artifacts
           [ -d "tests/output" ] && cp -r tests/output/* test-artifacts/ 2>/dev/null || true
           [ -d "debug-log" ] && cp -r debug-log test-artifacts/debug-log 2>/dev/null || true
-          docker logs hiclaw-manager > test-artifacts/manager.log 2>&1 || true
-          docker exec hiclaw-manager cat /var/log/hiclaw/manager-agent.log \
-            > test-artifacts/manager-agent.log 2>&1 || true
-          for c in $(docker ps -a --format '{{.Names}}' | grep hiclaw-worker); do
-            docker logs "$c" > "test-artifacts/${c}.log" 2>&1 || true
-          done
 
       - name: Upload test artifacts
         if: always()
