@@ -77,14 +77,23 @@ func (r *WorkerReconciler) handleCreate(ctx context.Context, w *v1.Worker) (reco
 		return reconcile.Result{}, err
 	}
 
-	// Resolve package if specified
+	// Resolve and deploy package if specified
 	if w.Spec.Package != "" {
-		_, err := r.Packages.Resolve(ctx, w.Spec.Package)
+		extractedDir, err := r.Packages.ResolveAndExtract(ctx, w.Spec.Package, w.Name)
 		if err != nil {
 			w.Status.Phase = "Failed"
-			w.Status.Message = fmt.Sprintf("package resolve failed: %v", err)
+			w.Status.Message = fmt.Sprintf("package resolve/extract failed: %v", err)
 			r.Status().Update(ctx, w)
 			return reconcile.Result{RequeueAfter: time.Minute}, err
+		}
+		if extractedDir != "" {
+			if err := r.Packages.DeployToMinIO(ctx, extractedDir, w.Name); err != nil {
+				w.Status.Phase = "Failed"
+				w.Status.Message = fmt.Sprintf("package deploy failed: %v", err)
+				r.Status().Update(ctx, w)
+				return reconcile.Result{RequeueAfter: time.Minute}, err
+			}
+			logger.Info("package deployed", "name", w.Name, "dir", extractedDir)
 		}
 	}
 
