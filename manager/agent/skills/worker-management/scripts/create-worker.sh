@@ -43,6 +43,9 @@ SKILLS_API_URL=""
 WORKER_RUNTIME="${HICLAW_DEFAULT_WORKER_RUNTIME:-openclaw}"   # openclaw | copaw
 CONSOLE_PORT=""             # copaw only: web console port (e.g. 8088)
 CUSTOM_IMAGE=""             # optional: custom Docker image for this worker
+WORKER_ROLE="worker"        # worker | team_leader
+TEAM_NAME=""                # optional: team this worker belongs to
+TEAM_LEADER_NAME=""         # optional: for team workers, who their leader is
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -55,12 +58,15 @@ while [ $# -gt 0 ]; do
         --remote)     REMOTE_MODE=true; shift ;;
         --runtime)    WORKER_RUNTIME="$2"; shift 2 ;;
         --console-port) CONSOLE_PORT="$2"; shift 2 ;;
+        --role)       WORKER_ROLE="$2"; shift 2 ;;
+        --team)       TEAM_NAME="$2"; shift 2 ;;
+        --team-leader) TEAM_LEADER_NAME="$2"; shift 2 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
 
 if [ -z "${WORKER_NAME}" ]; then
-    echo "Usage: create-worker.sh --name <NAME> [--model <MODEL_ID>] [--image <IMAGE>] [--mcp-servers s1,s2] [--skills s1,s2] [--skills-api-url <URL>] [--remote] [--runtime openclaw|copaw] [--console-port <PORT>]"
+    echo "Usage: create-worker.sh --name <NAME> [--model <MODEL_ID>] [--image <IMAGE>] [--mcp-servers s1,s2] [--skills s1,s2] [--skills-api-url <URL>] [--remote] [--runtime openclaw|copaw] [--console-port <PORT>] [--role worker|team_leader] [--team <TEAM>] [--team-leader <LEADER>]"
     exit 1
 fi
 
@@ -274,14 +280,25 @@ if [ "${HICLAW_MATRIX_E2EE:-0}" = "1" ] || [ "${HICLAW_MATRIX_E2EE:-}" = "true" 
     log "  E2EE enabled: adding m.room.encryption to room initial_state"
 fi
 
+# For team workers, the 3-party room is Leader + Admin + Worker (not Manager)
+if [ -n "${TEAM_LEADER_NAME}" ]; then
+    ROOM_AUTHORITY_ID="@${TEAM_LEADER_NAME}:${MATRIX_DOMAIN}"
+    ROOM_NAME_PREFIX="Worker"
+    log "  Team worker mode: room will be Leader(${TEAM_LEADER_NAME}) + Admin + Worker"
+else
+    ROOM_AUTHORITY_ID="${MANAGER_MATRIX_ID}"
+    ROOM_NAME_PREFIX="Worker"
+fi
+
 ROOM_RESP=$(curl -sf -X POST ${HICLAW_MATRIX_SERVER}/_matrix/client/v3/createRoom \
     -H "Authorization: Bearer ${MANAGER_MATRIX_TOKEN}" \
     -H 'Content-Type: application/json' \
     -d '{
-        "name": "Worker: '"${WORKER_NAME}"'",
+        "name": "'"${ROOM_NAME_PREFIX}: ${WORKER_NAME}"'",
         "topic": "Communication channel for '"${WORKER_NAME}"'",
         "invite": [
             "'"${ADMIN_MATRIX_ID}"'",
+            "'"${ROOM_AUTHORITY_ID}"'",
             "@'"${WORKER_NAME}"':'"${MATRIX_DOMAIN}"'"
         ],
         "preset": "trusted_private_chat",
@@ -289,6 +306,7 @@ ROOM_RESP=$(curl -sf -X POST ${HICLAW_MATRIX_SERVER}/_matrix/client/v3/createRoo
             "users": {
                 "'"${MANAGER_MATRIX_ID}"'": 100,
                 "'"${ADMIN_MATRIX_ID}"'": 100,
+                "'"${ROOM_AUTHORITY_ID}"'": 100,
                 "@'"${WORKER_NAME}"':'"${MATRIX_DOMAIN}"'": 0
             }
         }'"${ROOM_E2EE_INITIAL_STATE}"'
@@ -337,6 +355,12 @@ log "Step 6: Generating openclaw.json..."
 GEN_ARGS=("${WORKER_NAME}" "${WORKER_MATRIX_TOKEN}" "${WORKER_KEY}")
 if [ -n "${MODEL_ID}" ]; then
     GEN_ARGS+=("${MODEL_ID}")
+else
+    GEN_ARGS+=("")
+fi
+# Pass team-leader name as 5th arg so groupAllowFrom uses Leader instead of Manager
+if [ -n "${TEAM_LEADER_NAME}" ]; then
+    GEN_ARGS+=("${TEAM_LEADER_NAME}")
 fi
 bash /opt/hiclaw/agent/skills/worker-management/scripts/generate-worker-config.sh "${GEN_ARGS[@]}"
 
@@ -374,21 +398,26 @@ REGISTRY_FILE_EARLY="${HOME}/workers-registry.json"
 # ============================================================
 # Step 7: Update Manager groupAllowFrom
 # ============================================================
-log "Step 7: Updating Manager groupAllowFrom..."
-MANAGER_CONFIG="${HOME}/openclaw.json"
-WORKER_MATRIX_ID="@${WORKER_NAME}:${MATRIX_DOMAIN}"
-if [ -f "${MANAGER_CONFIG}" ]; then
-    ALREADY_IN=$(jq -r --arg w "${WORKER_MATRIX_ID}" \
-        '.channels.matrix.groupAllowFrom // [] | map(select(. == $w)) | length' \
-        "${MANAGER_CONFIG}" 2>/dev/null || echo "0")
-    if [ "${ALREADY_IN}" = "0" ]; then
-        jq --arg w "${WORKER_MATRIX_ID}" \
-            '.channels.matrix.groupAllowFrom += [$w]' \
-            "${MANAGER_CONFIG}" > /tmp/manager-config-updated.json
-        mv /tmp/manager-config-updated.json "${MANAGER_CONFIG}"
-        log "  Added ${WORKER_MATRIX_ID} to groupAllowFrom"
-    else
-        log "  ${WORKER_MATRIX_ID} already in groupAllowFrom"
+# For team workers, do NOT add to Manager's groupAllowFrom — they only talk to their Leader.
+if [ -n "${TEAM_LEADER_NAME}" ]; then
+    log "Step 7: Skipping Manager groupAllowFrom (team worker reports to leader ${TEAM_LEADER_NAME})"
+else
+    log "Step 7: Updating Manager groupAllowFrom..."
+    MANAGER_CONFIG="${HOME}/openclaw.json"
+    WORKER_MATRIX_ID="@${WORKER_NAME}:${MATRIX_DOMAIN}"
+    if [ -f "${MANAGER_CONFIG}" ]; then
+        ALREADY_IN=$(jq -r --arg w "${WORKER_MATRIX_ID}" \
+            '.channels.matrix.groupAllowFrom // [] | map(select(. == $w)) | length' \
+            "${MANAGER_CONFIG}" 2>/dev/null || echo "0")
+        if [ "${ALREADY_IN}" = "0" ]; then
+            jq --arg w "${WORKER_MATRIX_ID}" \
+                '.channels.matrix.groupAllowFrom += [$w]' \
+                "${MANAGER_CONFIG}" > /tmp/manager-config-updated.json
+            mv /tmp/manager-config-updated.json "${MANAGER_CONFIG}"
+            log "  Added ${WORKER_MATRIX_ID} to groupAllowFrom"
+        else
+            log "  ${WORKER_MATRIX_ID} already in groupAllowFrom"
+        fi
     fi
 fi
 
@@ -414,8 +443,10 @@ rm -f "${_tmp_pw}"
 log "  MinIO sync verified"
 
 # Push Worker agent files from Manager image (AGENTS.md + default skills)
-# Use runtime-specific skills for copaw workers
-if [ "${WORKER_RUNTIME}" = "copaw" ]; then
+# Use runtime-specific skills for copaw workers, team-leader skills for leaders
+if [ "${WORKER_ROLE}" = "team_leader" ] && [ -d "/opt/hiclaw/agent/team-leader-agent" ]; then
+    WORKER_AGENT_SRC="/opt/hiclaw/agent/team-leader-agent"
+elif [ "${WORKER_RUNTIME}" = "copaw" ]; then
     WORKER_AGENT_SRC="/opt/hiclaw/agent/copaw-worker-agent"
 else
     WORKER_AGENT_SRC="/opt/hiclaw/agent/worker-agent"
@@ -486,6 +517,8 @@ jq --arg w "${WORKER_NAME}" \
    --arg runtime "${WORKER_RUNTIME}" \
    --arg deployment "${DEPLOY_MODE_HINT}" \
    --arg image "${CUSTOM_IMAGE:-}" \
+   --arg role "${WORKER_ROLE}" \
+   --arg team_id "${TEAM_NAME:-}" \
    --argjson skills "${SKILLS_JSON}" \
    '.workers[$w] = {
      "matrix_user_id": $uid,
@@ -493,6 +526,8 @@ jq --arg w "${WORKER_NAME}" \
      "runtime": $runtime,
      "deployment": $deployment,
      "skills": $skills,
+     "role": $role,
+     "team_id": (if $team_id == "" then null else $team_id end),
      "image": (if $image == "" then null else $image end),
      "created_at": (if .workers[$w].created_at? then .workers[$w].created_at else $ts end),
      "skills_updated_at": $ts
@@ -690,6 +725,9 @@ RESULT=$(jq -n \
     --arg status "${WORKER_STATUS}" \
     --arg install_cmd "${INSTALL_CMD:-}" \
     --arg console_host_port "${CONSOLE_HOST_PORT:-}" \
+    --arg role "${WORKER_ROLE}" \
+    --arg team_id "${TEAM_NAME:-}" \
+    --arg team_leader "${TEAM_LEADER_NAME:-}" \
     --argjson skills "${SKILLS_JSON}" \
     '{
         worker_name: $name,
@@ -697,6 +735,9 @@ RESULT=$(jq -n \
         room_id: $room_id,
         consumer: $consumer,
         runtime: $runtime,
+        role: $role,
+        team_id: (if $team_id == "" then null else $team_id end),
+        team_leader: (if $team_leader == "" then null else $team_leader end),
         skills: $skills,
         mode: $mode,
         container_id: $container_id,
