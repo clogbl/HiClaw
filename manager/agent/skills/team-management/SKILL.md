@@ -20,7 +20,9 @@ mkdir -p /root/hiclaw-fs/agents/<WORKER_NAME>
 
 # 3. Run create-team script
 bash /opt/hiclaw/agent/skills/team-management/scripts/create-team.sh \
-  --name <TEAM_NAME> --leader <LEADER_NAME> --workers <w1>,<w2>
+  --name <TEAM_NAME> --leader <LEADER_NAME> --workers <w1>,<w2> \
+  [--team-admin <HUMAN_NAME>] [--team-admin-matrix-id <@user:domain>] \
+  [--worker-skills <s1,s2>:<s3,s4>] [--worker-mcp-servers <m1>:<m2>]
 ```
 
 > Full workflow: read `references/create-team.md`
@@ -28,10 +30,12 @@ bash /opt/hiclaw/agent/skills/team-management/scripts/create-team.sh \
 ## Gotchas
 
 - **Team Leader is a Worker container** — same runtime, but with team-leader-agent skills instead of worker-agent skills
-- **Team workers only talk to their Leader** — their groupAllowFrom has [Leader, Admin], NOT Manager
+- **Team workers only talk to their Leader** — their groupAllowFrom has [Leader, Team Admin], NOT Manager
 - **Manager only talks to Team Leader** — never @mention team workers directly
-- **Team Room does not include Manager** — it's Leader + Admin + all team workers
-- **Leader Room is standard 3-party** — Manager + Admin + Leader (same as regular worker room)
+- **Team Room includes Team Admin** — it's Leader + Team Admin + all team workers (no Global Admin unless they are Team Admin)
+- **Leader Room is standard 3-party** — Manager + Global Admin + Leader (same as regular worker room)
+- **Leader DM is Team Admin ↔ Leader** — for team-level management
+- **Team Admin defaults to Global Admin** — if `--team-admin` not specified
 - **Delegated tasks use `--delegated-to-team`** — so heartbeat knows to check with Leader, not workers
 
 ## Operation Reference

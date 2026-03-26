@@ -45,30 +45,42 @@ bash /opt/hiclaw/agent/skills/team-management/scripts/create-team.sh \
   --leader <LEADER_NAME> \
   --workers <w1>,<w2>,<w3> \
   [--leader-model <MODEL_ID>] \
-  [--worker-models <m1>,<m2>,<m3>]
+  [--worker-models <m1>,<m2>,<m3>] \
+  [--worker-skills <s1,s2>:<s3,s4>:...] \
+  [--worker-mcp-servers <m1,m2>:<m3,m4>:...] \
+  [--team-admin <HUMAN_NAME>] \
+  [--team-admin-matrix-id <@user:domain>]
 ```
+
+Notes:
+- `--worker-skills` and `--worker-mcp-servers` use `:` to separate per-worker values (matching worker order)
+- `--team-admin` is optional. If not specified, Global Admin is used as Team Admin
+- Team Admin gets power level 100 in Team Room and Leader DM
 
 ## What the Script Does
 
 1. Creates the Team Leader via `create-worker.sh --role team_leader --team <TEAM>`
-2. Creates each team worker via `create-worker.sh --role worker --team <TEAM> --team-leader <LEADER>`
-3. Creates a Team Room (Leader + Admin + all workers) in Matrix
-4. Updates `teams-registry.json`
-5. Updates Leader's `groupAllowFrom` to include all team workers
-6. Pushes team-leader-agent skills to Leader's MinIO workspace
+2. Creates each team worker via `create-worker.sh --role worker --team <TEAM> --team-leader <LEADER>` with per-worker skills and mcpServers
+3. Creates a Team Room (Leader + Team Admin + all workers) — no Global Admin unless they are the Team Admin
+4. Creates a Leader DM room (Team Admin ↔ Leader)
+5. Updates Leader's and Workers' `groupAllowFrom` to include Team Admin
+6. Updates `teams-registry.json` with admin, leader_dm_room_id
+7. Pushes team-leader-agent skills to Leader's MinIO workspace
 
 ## Room Topology Created
 
 ```
-Leader Room:  Manager + Admin + Leader        (standard 3-party worker room)
-Team Room:    Leader + Admin + W1 + W2 + ...  (multi-party, Manager NOT included)
-Worker Rooms: Leader + Admin + W1             (per-worker, Leader replaces Manager)
-              Leader + Admin + W2
+Leader Room:  Manager + Global Admin + Leader    (standard 3-party worker room)
+Leader DM:    Team Admin ↔ Leader                (team management channel)
+Team Room:    Leader + Team Admin + W1 + W2 + ... (no Global Admin unless they are Team Admin)
 ```
+
+Note: Team Workers do NOT get individual rooms. All team communication happens in the Team Room.
 
 ## After Creation
 
 1. Verify all containers started: check `docker ps` or lifecycle status
 2. Verify Team Room exists: check `teams-registry.json` for `team_room_id`
-3. Send a greeting to the Team Leader in the Leader Room
-4. The Team Leader will handle coordination with team workers from there
+3. Verify Leader DM exists: check `teams-registry.json` for `leader_dm_room_id`
+4. Send a greeting to the Team Leader in the Leader Room
+5. The Team Leader will handle coordination with team workers from there

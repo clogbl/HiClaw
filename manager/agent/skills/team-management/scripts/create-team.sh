@@ -33,6 +33,8 @@ LEADER_NAME=""
 WORKERS_CSV=""
 LEADER_MODEL=""
 WORKER_MODELS_CSV=""
+WORKER_SKILLS_CSV=""
+WORKER_MCP_SERVERS_CSV=""
 TEAM_ADMIN=""
 TEAM_ADMIN_MATRIX_ID=""
 
@@ -43,6 +45,8 @@ while [ $# -gt 0 ]; do
         --workers)        WORKERS_CSV="$2"; shift 2 ;;
         --leader-model)   LEADER_MODEL="$2"; shift 2 ;;
         --worker-models)  WORKER_MODELS_CSV="$2"; shift 2 ;;
+        --worker-skills)  WORKER_SKILLS_CSV="$2"; shift 2 ;;
+        --worker-mcp-servers) WORKER_MCP_SERVERS_CSV="$2"; shift 2 ;;
         --team-admin)     TEAM_ADMIN="$2"; shift 2 ;;
         --team-admin-matrix-id) TEAM_ADMIN_MATRIX_ID="$2"; shift 2 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
@@ -57,6 +61,9 @@ fi
 # Parse workers list
 IFS=',' read -ra WORKER_NAMES <<< "${WORKERS_CSV}"
 IFS=',' read -ra WORKER_MODELS <<< "${WORKER_MODELS_CSV:-}"
+# Per-worker skills/mcpServers use : as separator between workers
+IFS=':' read -ra WORKER_SKILLS_ARR <<< "${WORKER_SKILLS_CSV:-}"
+IFS=':' read -ra WORKER_MCP_ARR <<< "${WORKER_MCP_SERVERS_CSV:-}"
 
 MATRIX_DOMAIN="${HICLAW_MATRIX_DOMAIN:-matrix-local.hiclaw.io:8080}"
 ADMIN_USER="${HICLAW_ADMIN_USER:-admin}"
@@ -118,11 +125,19 @@ for i in "${!WORKER_NAMES[@]}"; do
     [ -z "${w_name}" ] && continue
 
     w_model="${WORKER_MODELS[$i]:-}"
+    w_skills="${WORKER_SKILLS_ARR[$i]:-}"
+    w_mcp="${WORKER_MCP_ARR[$i]:-}"
     log "  Creating worker: ${w_name}..."
 
     W_ARGS=(--name "${w_name}" --role worker --team "${TEAM_NAME}" --team-leader "${LEADER_NAME}")
     if [ -n "${w_model}" ]; then
         W_ARGS+=(--model "${w_model}")
+    fi
+    if [ -n "${w_skills}" ]; then
+        W_ARGS+=(--skills "${w_skills}")
+    fi
+    if [ -n "${w_mcp}" ]; then
+        W_ARGS+=(--mcp-servers "${w_mcp}")
     fi
 
     W_RESULT=$(bash /opt/hiclaw/agent/skills/worker-management/scripts/create-worker.sh "${W_ARGS[@]}" 2>&1)
