@@ -44,7 +44,7 @@ spec:
               properties:
                 phase:
                   type: string
-                  enum: [Pending, Running, Stopped, Failed]
+                  enum: [Pending, Running, Updating, Stopped, Failed]
                 matrixUserID:
                   type: string
                 roomID:

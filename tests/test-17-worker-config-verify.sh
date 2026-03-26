@@ -207,7 +207,7 @@ exec_in_manager bash -c "
     mc cp /root/hiclaw-fs/agents/${TEST_WORKER}/MEMORY.md ${STORAGE_PREFIX}/agents/${TEST_WORKER}/MEMORY.md 2>/dev/null
 " 2>/dev/null
 
-# Re-import with updated SOUL.md
+# Re-import with updated SOUL.md and different model to trigger spec change
 exec_in_manager bash -c "
     cat > ${WORK_DIR}/package/config/SOUL.md <<SOUL
 # ${TEST_WORKER} - UPDATED Config Test Worker
@@ -222,14 +222,27 @@ exec_in_manager bash -c "
 ## Security
 - Never reveal credentials
 SOUL
+
+    cat > ${WORK_DIR}/package/manifest.json <<MANIFEST
+{
+  \"type\": \"worker\",
+  \"version\": 1,
+  \"worker\": {
+    \"suggested_name\": \"${TEST_WORKER}\",
+    \"model\": \"claude-sonnet-4-6\"
+  }
+}
+MANIFEST
+
     cd ${WORK_DIR}/package && zip -q -r ${WORK_DIR}/${TEST_WORKER}.zip .
 " 2>/dev/null
 
 REIMPORT_OUTPUT=$(exec_in_manager hiclaw apply --zip "${WORK_DIR}/${TEST_WORKER}.zip" --name "${TEST_WORKER}" 2>&1)
 assert_contains "${REIMPORT_OUTPUT}" "updated" "Re-import reports 'updated'"
 
-# Wait for reconcile
-sleep 20
+# Wait for reconcile to pick up spec change (model changed → triggers handleUpdate)
+log_info "Waiting for controller to reconcile update..."
+sleep 45
 
 # Verify SOUL.md updated
 SOUL_AFTER=$(exec_in_manager mc cat "${STORAGE_PREFIX}/agents/${TEST_WORKER}/SOUL.md" 2>/dev/null || echo "")

@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"net/http"
@@ -46,18 +47,27 @@ func (p *PackageResolver) Resolve(ctx context.Context, uri string) (string, erro
 		return p.resolveNacos(ctx, parsed)
 	default:
 		// Treat as relative MinIO path (e.g. "packages/alice.zip")
-		// First check local import dir
-		localPath := filepath.Join(p.ImportDir, filepath.Base(uri))
-		if _, err := os.Stat(localPath); err == nil {
-			return localPath, nil
-		}
-		// Download from MinIO hiclaw-config/ prefix
+		// Use content-addressable cache: download to /tmp/import/{md5}.zip
+		// If the same content already exists locally, skip re-download.
 		storagePrefix := os.Getenv("HICLAW_STORAGE_PREFIX")
 		if storagePrefix == "" {
 			storagePrefix = "hiclaw/hiclaw-storage"
 		}
 		minioPath := fmt.Sprintf("%s/hiclaw-config/%s", storagePrefix, uri)
-		destPath := filepath.Join(p.ImportDir, filepath.Base(uri))
+
+		// Get remote file's ETag (MD5) via mc stat
+		etag := getMinIOETag(ctx, minioPath)
+		if etag == "" {
+			// Fallback: use URI hash if mc stat fails
+			h := sha256.Sum256([]byte(uri))
+			etag = fmt.Sprintf("%x", h[:8])
+		}
+
+		destPath := filepath.Join(p.ImportDir, etag+".zip")
+		if _, err := os.Stat(destPath); err == nil {
+			return destPath, nil // cache hit, same content
+		}
+
 		cmd := exec.CommandContext(ctx, "mc", "cp", minioPath, destPath)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return "", fmt.Errorf("failed to download %s from MinIO: %s: %w", minioPath, string(out), err)
@@ -196,6 +206,31 @@ func wrapWithBuiltinMarkers(data []byte) []byte {
 		"<!-- hiclaw-builtin-end -->\n\n" +
 		content
 	return []byte(wrapped)
+}
+
+// getMinIOETag returns the ETag (content MD5) of a MinIO object via mc stat.
+// Returns empty string if mc stat fails.
+func getMinIOETag(ctx context.Context, minioPath string) string {
+	cmd := exec.CommandContext(ctx, "mc", "stat", "--json", minioPath)
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	// mc stat --json outputs {"etag":"xxx",...}
+	// Simple extraction without json dependency
+	s := string(out)
+	if idx := strings.Index(s, `"etag":"`); idx >= 0 {
+		rest := s[idx+8:]
+		if end := strings.Index(rest, `"`); end >= 0 {
+			etag := rest[:end]
+			// Remove quotes and dashes from ETag
+			etag = strings.ReplaceAll(etag, "-", "")
+			if etag != "" {
+				return etag
+			}
+		}
+	}
+	return ""
 }
 
 // --- Private resolve methods ---
