@@ -240,9 +240,24 @@ MANIFEST
 REIMPORT_OUTPUT=$(exec_in_manager hiclaw apply --zip "${WORK_DIR}/${TEST_WORKER}.zip" --name "${TEST_WORKER}" 2>&1)
 assert_contains "${REIMPORT_OUTPUT}" "updated" "Re-import reports 'updated'"
 
-# Wait for reconcile to pick up spec change (model changed → triggers handleUpdate)
+# Wait for controller to reconcile the update (poll for "worker updated" in logs)
 log_info "Waiting for controller to reconcile update..."
-sleep 45
+UPDATE_TIMEOUT=120; UPDATE_ELAPSED=0
+UPDATE_DONE=false
+while [ "${UPDATE_ELAPSED}" -lt "${UPDATE_TIMEOUT}" ]; do
+    if exec_in_manager cat /var/log/hiclaw/hiclaw-controller-error.log 2>/dev/null | grep -q "worker updated.*${TEST_WORKER}"; then
+        UPDATE_DONE=true
+        break
+    fi
+    sleep 5; UPDATE_ELAPSED=$((UPDATE_ELAPSED + 5))
+done
+
+if [ "${UPDATE_DONE}" = true ]; then
+    log_pass "Controller reconciled update (took ~${UPDATE_ELAPSED}s)"
+else
+    log_fail "Controller did not reconcile update within ${UPDATE_TIMEOUT}s"
+    exec_in_manager cat /var/log/hiclaw/hiclaw-controller-error.log 2>/dev/null | grep "${TEST_WORKER}" | tail -5
+fi
 
 # Verify SOUL.md updated
 SOUL_AFTER=$(exec_in_manager mc cat "${STORAGE_PREFIX}/agents/${TEST_WORKER}/SOUL.md" 2>/dev/null || echo "")

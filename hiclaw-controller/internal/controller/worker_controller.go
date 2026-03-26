@@ -190,78 +190,44 @@ func (r *WorkerReconciler) handleUpdate(ctx context.Context, w *v1.Worker) (reco
 	}
 
 	// 1. Resolve and deploy package if specified (overwrites SOUL.md, adds custom skills)
+	packageDir := ""
 	if w.Spec.Package != "" {
 		extractedDir, err := r.Packages.ResolveAndExtract(ctx, w.Spec.Package, w.Name)
 		if err != nil {
 			logger.Error(err, "package resolve/extract failed during update", "name", w.Name)
 		} else if extractedDir != "" {
-			if err := r.Packages.DeployToMinIO(ctx, extractedDir, w.Name); err != nil {
-				logger.Error(err, "package deploy failed during update", "name", w.Name)
-			} else {
-				logger.Info("package redeployed", "name", w.Name)
-			}
+			packageDir = extractedDir
+			logger.Info("package resolved for update", "name", w.Name, "dir", extractedDir)
 		}
 	}
 
-	// 2. Regenerate openclaw.json (model change)
-	genArgs := []string{w.Name}
-	// We need the worker's existing Matrix token and gateway key — read from persisted creds
-	// generate-worker-config.sh will be called by the update script which handles this
+	// 2. Call update-worker-config.sh (handles credentials, openclaw.json, skills, MinIO sync)
+	args := []string{"--name", w.Name}
 	if w.Spec.Model != "" {
-		_, err := r.Executor.RunSimple(ctx,
-			"/opt/hiclaw/agent/skills/worker-management/scripts/generate-worker-config.sh",
-			w.Name, "", "", w.Spec.Model,
-		)
-		if err != nil {
-			logger.Error(err, "failed to regenerate openclaw.json", "name", w.Name)
-		} else {
-			logger.Info("openclaw.json regenerated", "name", w.Name, "model", w.Spec.Model)
-		}
+		args = append(args, "--model", w.Spec.Model)
 	}
-	_ = genArgs
-
-	// 3. Push skills (additive — existing skills not removed)
 	if len(w.Spec.Skills) > 0 {
-		_, err := r.Executor.RunSimple(ctx,
-			"/opt/hiclaw/agent/skills/worker-management/scripts/push-worker-skills.sh",
-			"--worker", w.Name, "--no-notify",
-		)
-		if err != nil {
-			logger.Error(err, "failed to push skills", "name", w.Name)
-		} else {
-			logger.Info("skills pushed (merged: existing updated, new added, old kept)", "name", w.Name, "skills", w.Spec.Skills)
-		}
+		args = append(args, "--skills", joinStrings(w.Spec.Skills))
 	}
-
-	// 4. Reauthorize MCP servers if changed
 	if len(w.Spec.McpServers) > 0 {
-		consumerName := "worker-" + w.Name
-		_, err := r.Executor.RunSimple(ctx,
-			"bash", "-c",
-			fmt.Sprintf("source /opt/hiclaw/scripts/lib/gateway-api.sh && gateway_authorize_mcp '%s' '%s'",
-				consumerName, joinStrings(w.Spec.McpServers)),
-		)
-		if err != nil {
-			logger.Error(err, "failed to reauthorize MCP servers", "name", w.Name)
-		} else {
-			logger.Info("MCP servers reauthorized", "name", w.Name, "servers", w.Spec.McpServers)
-		}
+		args = append(args, "--mcp-servers", joinStrings(w.Spec.McpServers))
+	}
+	if packageDir != "" {
+		args = append(args, "--package-dir", packageDir)
 	}
 
-	// 5. Sync updated config to MinIO
-	_, err := r.Executor.RunSimple(ctx,
-		"mc", "mirror",
-		fmt.Sprintf("/root/hiclaw-fs/agents/%s/", w.Name),
-		fmt.Sprintf("%s/agents/%s/", storagePrefix(), w.Name),
-		"--overwrite",
-		"--exclude", "memory/*",
-		"--exclude", "MEMORY.md",
+	_, err := r.Executor.Run(ctx,
+		"/opt/hiclaw/agent/skills/worker-management/scripts/update-worker-config.sh",
+		args...,
 	)
 	if err != nil {
-		logger.Error(err, "failed to sync config to MinIO", "name", w.Name)
+		w.Status.Phase = "Failed"
+		w.Status.Message = fmt.Sprintf("update-worker-config.sh failed: %v", err)
+		r.Status().Update(ctx, w)
+		return reconcile.Result{RequeueAfter: time.Minute}, err
 	}
 
-	// 6. Update spec hash and status
+	// 3. Update spec hash and status
 	if w.Annotations == nil {
 		w.Annotations = map[string]string{}
 	}
