@@ -19,11 +19,19 @@ test_setup "15-import-worker-zip"
 TEST_WORKER="test-import-$$"
 STORAGE_PREFIX="hiclaw/hiclaw-storage"
 
-# ---- Cleanup handler ----
+# ---- Cleanup handler (only clean up on success) ----
 _cleanup() {
-    log_info "Cleaning up test worker: ${TEST_WORKER}"
+    # Check if all tests passed before cleaning up
+    if [ "${TESTS_FAILED}" -gt 0 ]; then
+        log_info "Tests failed — preserving worker ${TEST_WORKER} for debugging"
+        log_info "  Container: hiclaw-worker-${TEST_WORKER}"
+        log_info "  MinIO YAML: ${STORAGE_PREFIX}/hiclaw-config/workers/${TEST_WORKER}.yaml"
+        log_info "  Agent dir: ${STORAGE_PREFIX}/agents/${TEST_WORKER}/"
+        return
+    fi
+    log_info "All tests passed — cleaning up test worker: ${TEST_WORKER}"
     exec_in_manager hiclaw delete worker "${TEST_WORKER}" 2>/dev/null || true
-    exec_in_manager mc rm "${STORAGE_PREFIX}/hiclaw-config/packages/${TEST_WORKER}.zip" 2>/dev/null || true
+    exec_in_manager mc rm "${STORAGE_PREFIX}/hiclaw-config/packages/${TEST_WORKER}*.zip" 2>/dev/null || true
     sleep 5
     docker rm -f "hiclaw-worker-${TEST_WORKER}" 2>/dev/null || true
     exec_in_manager rm -rf "/root/hiclaw-fs/agents/${TEST_WORKER}" 2>/dev/null || true
@@ -258,20 +266,40 @@ else
     assert_not_empty "${ADMIN_TOKEN}" "Admin Matrix login successful"
 
     if [ -n "${ADMIN_TOKEN}" ] && [ "${ADMIN_TOKEN}" != "null" ] && [ -n "${ROOM_ID}" ]; then
-        # Wait for Worker agent to be ready (OpenClaw needs time to initialize)
-        log_info "Waiting for Worker agent to initialize..."
-        sleep 30
+        # Wait for Worker to join the room (not just container running, but Matrix sync active)
+        ROOM_ENC="$(_encode_room_id "${ROOM_ID}")"
+        WORKER_MATRIX_ID="@${TEST_WORKER}:${TEST_MATRIX_DOMAIN}"
 
         # Admin must join the Worker Room first (create-worker.sh only invites)
-        ROOM_ENC="$(_encode_room_id "${ROOM_ID}")"
         exec_in_manager curl -s -X POST \
             "${TEST_MATRIX_DIRECT_URL}/_matrix/client/v3/rooms/${ROOM_ENC}/join" \
             -H "Authorization: Bearer ${ADMIN_TOKEN}" \
             -H 'Content-Type: application/json' -d '{}' 2>/dev/null | jq -r '.room_id // empty' > /dev/null
         log_info "Admin joined Worker Room"
 
-        # Worker's Matrix ID for @mention
-        WORKER_MATRIX_ID="@${TEST_WORKER}:${TEST_MATRIX_DOMAIN}"
+        # Poll until Worker has joined the room (membership = join)
+        log_info "Waiting for Worker to join room..."
+        WORKER_READY_TIMEOUT=120
+        WORKER_READY_ELAPSED=0
+        WORKER_JOINED=false
+        while [ "${WORKER_READY_ELAPSED}" -lt "${WORKER_READY_TIMEOUT}" ]; do
+            MEMBERS=$(exec_in_manager curl -sf \
+                "${TEST_MATRIX_DIRECT_URL}/_matrix/client/v3/rooms/${ROOM_ENC}/members" \
+                -H "Authorization: Bearer ${ADMIN_TOKEN}" 2>/dev/null | \
+                jq -r '.chunk[] | select(.content.membership == "join") | .state_key' 2>/dev/null)
+            if echo "${MEMBERS}" | grep -q "${WORKER_MATRIX_ID}"; then
+                WORKER_JOINED=true
+                break
+            fi
+            sleep 5
+            WORKER_READY_ELAPSED=$((WORKER_READY_ELAPSED + 5))
+        done
+
+        if [ "${WORKER_JOINED}" = true ]; then
+            log_pass "Worker joined room (took ~${WORKER_READY_ELAPSED}s)"
+        else
+            log_fail "Worker did not join room within ${WORKER_READY_TIMEOUT}s"
+        fi
 
         # Send message with @mention (Worker requires m.mentions to wake up)
         MESSAGE_BODY="${WORKER_MATRIX_ID} Hello! Please reply with a short greeting."
