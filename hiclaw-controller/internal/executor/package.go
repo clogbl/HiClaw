@@ -45,6 +45,8 @@ func (p *PackageResolver) Resolve(ctx context.Context, uri string) (string, erro
 		return p.resolveHTTP(ctx, uri)
 	case "nacos":
 		return p.resolveNacos(ctx, parsed)
+	case "oss":
+		return p.resolveOSS(ctx, parsed)
 	default:
 		// Treat as relative MinIO path (e.g. "packages/alice.zip")
 		// Use content-addressable cache: download to /tmp/import/{md5}.zip
@@ -234,6 +236,36 @@ func getMinIOETag(ctx context.Context, minioPath string) string {
 }
 
 // --- Private resolve methods ---
+
+// resolveOSS downloads a package from MinIO/OSS storage.
+// URI format: oss://hiclaw-config/packages/{name}-{md5}.zip
+// The filename contains the content hash, so it's naturally content-addressable:
+// same hash → same content → cache hit.
+func (p *PackageResolver) resolveOSS(ctx context.Context, u *url.URL) (string, error) {
+	// oss://hiclaw-config/packages/alice-abc123.zip → hiclaw-config/packages/alice-abc123.zip
+	ossPath := strings.TrimPrefix(u.Host+u.Path, "/")
+	filename := filepath.Base(ossPath)
+
+	// Content-addressable cache: filename includes MD5, so same file = cache hit
+	destPath := filepath.Join(p.ImportDir, filename)
+	if _, err := os.Stat(destPath); err == nil {
+		return destPath, nil // cache hit
+	}
+
+	// Download from MinIO
+	storagePrefix := os.Getenv("HICLAW_STORAGE_PREFIX")
+	if storagePrefix == "" {
+		storagePrefix = "hiclaw/hiclaw-storage"
+	}
+	minioPath := fmt.Sprintf("%s/%s", storagePrefix, ossPath)
+
+	cmd := exec.CommandContext(ctx, "mc", "cp", minioPath, destPath)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("failed to download oss://%s from MinIO: %s: %w", ossPath, string(out), err)
+	}
+
+	return destPath, nil
+}
 
 func (p *PackageResolver) resolveFile(u *url.URL) (string, error) {
 	filename := filepath.Base(u.Path)

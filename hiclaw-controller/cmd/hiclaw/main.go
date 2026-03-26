@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"os"
@@ -489,6 +490,14 @@ func applyZip(zipPath string, name string, dryRun bool) error {
 		model = "qwen3.5-plus"
 	}
 
+	// Compute MD5 of ZIP for content-addressable storage
+	zipData, err := os.ReadFile(zipPath)
+	if err != nil {
+		return fmt.Errorf("failed to read ZIP for hashing: %w", err)
+	}
+	zipHash := fmt.Sprintf("%x", sha256.Sum256(zipData))[:16]
+	packageFileName := fmt.Sprintf("%s-%s.zip", name, zipHash)
+
 	switch manifestType {
 	case "worker":
 		kind = "worker"
@@ -498,8 +507,8 @@ metadata:
   name: %s
 spec:
   model: %s
-  package: packages/%s.zip
-`, name, model, name)
+  package: oss://hiclaw-config/packages/%s
+`, name, model, packageFileName)
 
 	case "team":
 		kind = "team"
@@ -510,9 +519,9 @@ metadata:
 spec:
   leader:
     name: %s-lead
-    package: packages/%s.zip
+    package: oss://hiclaw-config/packages/%s
   workers: []
-`, name, name, name)
+`, name, name, packageFileName)
 
 	default:
 		return fmt.Errorf("unsupported manifest type: %s", manifestType)
@@ -524,8 +533,8 @@ spec:
 		return nil
 	}
 
-	// 4. Upload ZIP to MinIO hiclaw-config/packages/{name}.zip
-	packageDest := fmt.Sprintf("%s/hiclaw-config/packages/%s.zip", storagePrefix(), name)
+	// 4. Upload ZIP to MinIO hiclaw-config/packages/{name}-{md5}.zip
+	packageDest := fmt.Sprintf("%s/hiclaw-config/packages/%s", storagePrefix(), packageFileName)
 	if _, err := mcExec("cp", zipPath, packageDest); err != nil {
 		return fmt.Errorf("failed to upload ZIP to MinIO: %w", err)
 	}
