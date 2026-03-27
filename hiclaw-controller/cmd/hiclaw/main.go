@@ -364,16 +364,24 @@ func loadResources(files []string) ([]resource, error) {
 			}
 
 			r := resource{Raw: doc}
-			for _, line := range strings.Split(doc, "\n") {
-				line = strings.TrimSpace(line)
+			inMetadata := false
+			for _, rawLine := range strings.Split(doc, "\n") {
+				line := strings.TrimSpace(rawLine)
 				if strings.HasPrefix(line, "apiVersion:") {
 					r.APIVersion = strings.TrimSpace(strings.TrimPrefix(line, "apiVersion:"))
 				}
 				if strings.HasPrefix(line, "kind:") {
 					r.Kind = strings.TrimSpace(strings.TrimPrefix(line, "kind:"))
 				}
-				if strings.HasPrefix(line, "  name:") && r.Name == "" {
-					r.Name = strings.TrimSpace(strings.TrimPrefix(line, "  name:"))
+				if line == "metadata:" {
+					inMetadata = true
+					continue
+				}
+				if inMetadata && len(rawLine) > 0 && rawLine[0] != ' ' && rawLine[0] != '\t' {
+					inMetadata = false
+				}
+				if inMetadata && strings.HasPrefix(line, "name:") && r.Name == "" {
+					r.Name = strings.TrimSpace(strings.TrimPrefix(line, "name:"))
 				}
 			}
 

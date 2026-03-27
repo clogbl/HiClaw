@@ -46,6 +46,7 @@ CUSTOM_IMAGE=""             # optional: custom Docker image for this worker
 WORKER_ROLE="worker"        # worker | team_leader
 TEAM_NAME=""                # optional: team this worker belongs to
 TEAM_LEADER_NAME=""         # optional: for team workers, who their leader is
+TEAM_ADMIN_MATRIX_ID=""     # optional: team admin Matrix ID for team-context injection
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -61,6 +62,7 @@ while [ $# -gt 0 ]; do
         --role)       WORKER_ROLE="$2"; shift 2 ;;
         --team)       TEAM_NAME="$2"; shift 2 ;;
         --team-leader) TEAM_LEADER_NAME="$2"; shift 2 ;;
+        --team-admin-matrix-id) TEAM_ADMIN_MATRIX_ID="$2"; shift 2 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
@@ -467,9 +469,9 @@ if [ -d "${WORKER_AGENT_SRC}" ]; then
     _agents_minio_path="${HICLAW_STORAGE_PREFIX}/agents/${WORKER_NAME}/AGENTS.md"
     _ctx_tmp=$(mktemp /tmp/team-ctx-XXXXXX.md)
 
-    # Look up Team Admin from teams-registry if in a team
-    _team_admin_mid=""
-    if [ -n "${TEAM_NAME}" ]; then
+    # Look up Team Admin from parameter or teams-registry
+    _team_admin_mid="${TEAM_ADMIN_MATRIX_ID:-}"
+    if [ -z "${_team_admin_mid}" ] && [ -n "${TEAM_NAME}" ]; then
         _teams_reg="${HOME}/teams-registry.json"
         if [ -f "${_teams_reg}" ]; then
             _team_admin_mid=$(jq -r --arg t "${TEAM_NAME}" '.teams[$t].admin.matrix_user_id // empty' "${_teams_reg}" 2>/dev/null)
@@ -478,33 +480,41 @@ if [ -d "${WORKER_AGENT_SRC}" ]; then
 
     if [ -n "${TEAM_LEADER_NAME}" ]; then
         # Team Worker: coordinator is Team Leader
-        cat > "${_ctx_tmp}" <<TEAMCTX
-
-<!-- hiclaw-team-context-start -->
-## Coordination
-
-- **Coordinator**: @${TEAM_LEADER_NAME}:${MATRIX_DOMAIN} (Team Leader of ${TEAM_NAME})
-$([ -n "${_team_admin_mid}" ] && echo "- **Team Admin**: ${_team_admin_mid} (has admin authority within this team)")
-- Report task completion, blockers, and questions to your coordinator
-- Respond to @mentions from your coordinator$([ -n "${_team_admin_mid}" ] && echo ", Team Admin,") and global Admin
-- Do NOT @mention Manager directly — all communication goes through your Team Leader
-<!-- hiclaw-team-context-end -->
-TEAMCTX
+        {
+            echo ""
+            echo "<!-- hiclaw-team-context-start -->"
+            echo "## Coordination"
+            echo ""
+            echo "- **Coordinator**: @${TEAM_LEADER_NAME}:${MATRIX_DOMAIN} (Team Leader of ${TEAM_NAME})"
+            if [ -n "${_team_admin_mid}" ]; then
+                echo "- **Team Admin**: ${_team_admin_mid} (has admin authority within this team)"
+            fi
+            echo "- Report task completion, blockers, and questions to your coordinator"
+            if [ -n "${_team_admin_mid}" ]; then
+                echo "- Respond to @mentions from your coordinator, Team Admin, and global Admin"
+            else
+                echo "- Respond to @mentions from your coordinator and global Admin"
+            fi
+            echo "- Do NOT @mention Manager directly — all communication goes through your Team Leader"
+            echo "<!-- hiclaw-team-context-end -->"
+        } > "${_ctx_tmp}"
     elif [ "${WORKER_ROLE}" = "team_leader" ]; then
         # Team Leader: upstream is Manager, downstream is team workers
-        cat > "${_ctx_tmp}" <<LEADERCTX
-
-<!-- hiclaw-team-context-start -->
-## Coordination
-
-- **Upstream coordinator**: @manager:${MATRIX_DOMAIN} (Manager) — you receive tasks from Manager
-$([ -n "${_team_admin_mid}" ] && echo "- **Team Admin**: ${_team_admin_mid} — can assign tasks and make decisions within the team")
-- **Team**: ${TEAM_NAME}
-- You decompose tasks from Manager and assign sub-tasks to your team workers
-- Report aggregated results to Manager when all sub-tasks complete
-- @mention Manager only for: task completion, blockers, escalations
-<!-- hiclaw-team-context-end -->
-LEADERCTX
+        {
+            echo ""
+            echo "<!-- hiclaw-team-context-start -->"
+            echo "## Coordination"
+            echo ""
+            echo "- **Upstream coordinator**: @manager:${MATRIX_DOMAIN} (Manager) — you receive tasks from Manager"
+            if [ -n "${_team_admin_mid}" ]; then
+                echo "- **Team Admin**: ${_team_admin_mid} — can assign tasks and make decisions within the team"
+            fi
+            echo "- **Team**: ${TEAM_NAME}"
+            echo "- You decompose tasks from Manager and assign sub-tasks to your team workers"
+            echo "- Report aggregated results to Manager when all sub-tasks complete"
+            echo "- @mention Manager only for: task completion, blockers, escalations"
+            echo "<!-- hiclaw-team-context-end -->"
+        } > "${_ctx_tmp}"
     else
         # Standalone Worker: coordinator is Manager
         cat > "${_ctx_tmp}" <<STDCTX
@@ -522,17 +532,28 @@ STDCTX
     # Pull current AGENTS.md, inject context block, push back
     _agents_tmp=$(mktemp /tmp/agents-ctx-XXXXXX.md)
     if mc cp "${_agents_minio_path}" "${_agents_tmp}" 2>/dev/null; then
-        # Remove any existing team-context block first
-        sed -i '/<!-- hiclaw-team-context-start -->/,/<!-- hiclaw-team-context-end -->/d' "${_agents_tmp}" 2>/dev/null || true
-        # Insert after builtin-end marker
-        if grep -q 'hiclaw-builtin-end' "${_agents_tmp}"; then
-            sed -i "/<!-- hiclaw-builtin-end -->/r ${_ctx_tmp}" "${_agents_tmp}"
+        # Remove any existing team-context block and re-inject using awk (reliable across GNU/BSD)
+        _agents_clean=$(mktemp /tmp/agents-clean-XXXXXX.md)
+        awk '/<!-- hiclaw-team-context-start -->/{skip=1; next} /<!-- hiclaw-team-context-end -->/{skip=0; next} !skip' \
+            "${_agents_tmp}" > "${_agents_clean}"
+
+        # Insert context after builtin-end marker
+        _agents_final=$(mktemp /tmp/agents-final-XXXXXX.md)
+        if grep -q '^<!-- hiclaw-builtin-end -->' "${_agents_clean}"; then
+            awk -v ctx_file="${_ctx_tmp}" '
+                {print}
+                /^<!-- hiclaw-builtin-end -->$/ {
+                    while ((getline line < ctx_file) > 0) print line
+                    close(ctx_file)
+                }
+            ' "${_agents_clean}" > "${_agents_final}"
         else
-            # No builtin markers — append to end
-            cat "${_ctx_tmp}" >> "${_agents_tmp}"
+            cat "${_agents_clean}" "${_ctx_tmp}" > "${_agents_final}"
         fi
-        mc cp "${_agents_tmp}" "${_agents_minio_path}" 2>/dev/null \
+
+        mc cp "${_agents_final}" "${_agents_minio_path}" 2>/dev/null \
             || log "  WARNING: Failed to push coordination context to MinIO"
+        rm -f "${_agents_clean}" "${_agents_final}"
         log "  Coordination context injected"
     else
         log "  WARNING: Could not pull AGENTS.md for context injection"

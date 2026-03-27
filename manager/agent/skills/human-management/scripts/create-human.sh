@@ -185,7 +185,6 @@ if [ "${LEVEL}" = "1" ]; then
     if [ -f "${WORKERS_REGISTRY}" ]; then
         for agent in $(jq -r '.workers | keys[]' "${WORKERS_REGISTRY}" 2>/dev/null); do
             _add_to_group_allow "${agent}"
-            local room
             room=$(jq -r --arg w "${agent}" '.workers[$w].room_id // empty' "${WORKERS_REGISTRY}")
             _invite_to_room "${room}"
         done
@@ -194,7 +193,6 @@ if [ "${LEVEL}" = "1" ]; then
     # All team rooms
     if [ -f "${TEAMS_REGISTRY}" ]; then
         for team in $(jq -r '.teams | keys[]' "${TEAMS_REGISTRY}" 2>/dev/null); do
-            local team_room
             team_room=$(jq -r --arg t "${team}" '.teams[$t].team_room_id // empty' "${TEAMS_REGISTRY}")
             _invite_to_room "${team_room}"
         done
@@ -218,11 +216,9 @@ if [ "${LEVEL}" = "2" ]; then
             fi
 
             # Add to team leader
-            local leader
             leader=$(jq -r --arg t "${team}" '.teams[$t].leader // empty' "${TEAMS_REGISTRY}")
             if [ -n "${leader}" ]; then
                 _add_to_group_allow "${leader}"
-                local leader_room
                 leader_room=$(jq -r --arg w "${leader}" '.workers[$w].room_id // empty' "${WORKERS_REGISTRY}" 2>/dev/null)
                 _invite_to_room "${leader_room}"
             fi
@@ -230,13 +226,11 @@ if [ "${LEVEL}" = "2" ]; then
             # Add to all team workers
             for tw in $(jq -r --arg t "${team}" '.teams[$t].workers // [] | .[]' "${TEAMS_REGISTRY}" 2>/dev/null); do
                 _add_to_group_allow "${tw}"
-                local tw_room
                 tw_room=$(jq -r --arg w "${tw}" '.workers[$w].room_id // empty' "${WORKERS_REGISTRY}" 2>/dev/null)
                 _invite_to_room "${tw_room}"
             done
 
             # Invite to team room
-            local team_room
             team_room=$(jq -r --arg t "${team}" '.teams[$t].team_room_id // empty' "${TEAMS_REGISTRY}")
             _invite_to_room "${team_room}"
         done
@@ -249,7 +243,6 @@ if [ "${LEVEL}" = "2" ]; then
             w=$(echo "${w}" | tr -d ' ')
             [ -z "${w}" ] && continue
             _add_to_group_allow "${w}"
-            local w_room
             w_room=$(jq -r --arg w "${w}" '.workers[$w].room_id // empty' "${WORKERS_REGISTRY}" 2>/dev/null)
             _invite_to_room "${w_room}"
         done
@@ -266,7 +259,6 @@ if [ "${LEVEL}" = "3" ]; then
             w=$(echo "${w}" | tr -d ' ')
             [ -z "${w}" ] && continue
             _add_to_group_allow "${w}"
-            local w_room
             w_room=$(jq -r --arg w "${w}" '.workers[$w].room_id // empty' "${WORKERS_REGISTRY}" 2>/dev/null)
             _invite_to_room "${w_room}"
         done

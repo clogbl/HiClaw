@@ -96,12 +96,32 @@ if [ -z "${MANAGER_MATRIX_TOKEN:-}" ]; then
 fi
 
 # ============================================================
+# Resolve Team Admin Matrix ID (before creating workers so they get it)
+# ============================================================
+TEAM_ADMIN_MID=""
+if [ -n "${TEAM_ADMIN}" ]; then
+    if [ -n "${TEAM_ADMIN_MATRIX_ID}" ]; then
+        TEAM_ADMIN_MID="${TEAM_ADMIN_MATRIX_ID}"
+    else
+        TEAM_ADMIN_MID="@${TEAM_ADMIN}:${MATRIX_DOMAIN}"
+    fi
+else
+    # Default: use Global Admin as Team Admin
+    TEAM_ADMIN="${ADMIN_USER}"
+    TEAM_ADMIN_MID="@${ADMIN_USER}:${MATRIX_DOMAIN}"
+    log "  No --team-admin specified, defaulting to Global Admin (${ADMIN_USER})"
+fi
+
+# ============================================================
 # Step 1: Create Team Leader
 # ============================================================
 log "Step 1: Creating Team Leader (${LEADER_NAME})..."
 LEADER_ARGS=(--name "${LEADER_NAME}" --role team_leader --team "${TEAM_NAME}")
 if [ -n "${LEADER_MODEL}" ]; then
     LEADER_ARGS+=(--model "${LEADER_MODEL}")
+fi
+if [ -n "${TEAM_ADMIN_MID}" ]; then
+    LEADER_ARGS+=(--team-admin-matrix-id "${TEAM_ADMIN_MID}")
 fi
 
 LEADER_RESULT=$(bash /opt/hiclaw/agent/skills/worker-management/scripts/create-worker.sh "${LEADER_ARGS[@]}" 2>&1)
@@ -139,6 +159,9 @@ for i in "${!WORKER_NAMES[@]}"; do
     if [ -n "${w_mcp}" ]; then
         W_ARGS+=(--mcp-servers "${w_mcp}")
     fi
+    if [ -n "${TEAM_ADMIN_MID}" ]; then
+        W_ARGS+=(--team-admin-matrix-id "${TEAM_ADMIN_MID}")
+    fi
 
     W_RESULT=$(bash /opt/hiclaw/agent/skills/worker-management/scripts/create-worker.sh "${W_ARGS[@]}" 2>&1)
     W_JSON=$(echo "${W_RESULT}" | sed -n '/---RESULT---/,$ p' | tail -n +2)
@@ -155,21 +178,6 @@ log "Step 3: Creating Team Room..."
 MANAGER_MATRIX_ID="@manager:${MATRIX_DOMAIN}"
 ADMIN_MATRIX_ID="@${ADMIN_USER}:${MATRIX_DOMAIN}"
 LEADER_MATRIX_ID="@${LEADER_NAME}:${MATRIX_DOMAIN}"
-
-# Resolve Team Admin Matrix ID (default to Global Admin if not specified)
-TEAM_ADMIN_MID=""
-if [ -n "${TEAM_ADMIN}" ]; then
-    if [ -n "${TEAM_ADMIN_MATRIX_ID}" ]; then
-        TEAM_ADMIN_MID="${TEAM_ADMIN_MATRIX_ID}"
-    else
-        TEAM_ADMIN_MID="@${TEAM_ADMIN}:${MATRIX_DOMAIN}"
-    fi
-else
-    # Default: use Global Admin as Team Admin
-    TEAM_ADMIN="${ADMIN_USER}"
-    TEAM_ADMIN_MID="@${ADMIN_USER}:${MATRIX_DOMAIN}"
-    log "  No --team-admin specified, defaulting to Global Admin (${ADMIN_USER})"
-fi
 
 # Build invite list: Leader + Team Admin (if set) + all workers
 INVITE_LIST="\"${LEADER_MATRIX_ID}\""

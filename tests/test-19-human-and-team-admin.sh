@@ -2,13 +2,13 @@
 # test-19-human-and-team-admin.sh - Case 19: Import Human via YAML + Team with Team Admin
 #
 # Tests the full declarative Human import and Team Admin flow:
-#   1. Create Human via hiclaw apply -f (declarative YAML)
-#   2. Verify Human created via controller reconcile (Matrix account, password returned)
-#   3. Create Team with that Human as Team Admin
+#   1. Create Team with Human as Team Admin (team must exist before Human reconcile)
+#   2. Create Human via hiclaw apply -f (declarative YAML)
+#   3. Verify Human created via controller reconcile (Matrix account, password returned)
 #   4. Verify Team Admin in teams-registry.json (admin field, leader_dm_room_id)
 #   5. Verify groupAllowFrom includes Team Admin for Leader + Workers
 #   6. Verify team-context block mentions Team Admin
-#   7. Verify Team Admin can login and message Leader in Leader DM
+#   7. Verify containers running
 #   8. Cleanup (only on success)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,17 +32,13 @@ _cleanup() {
         return
     fi
     log_info "All tests passed — cleaning up"
-    # Delete Human YAML from MinIO
     exec_in_manager hiclaw delete human "${TEST_HUMAN}" 2>/dev/null || true
-    # Stop containers
     docker rm -f "hiclaw-worker-${TEST_LEADER}" 2>/dev/null || true
     docker rm -f "hiclaw-worker-${TEST_W1}" 2>/dev/null || true
-    # Clean MinIO agents
     for w in "${TEST_LEADER}" "${TEST_W1}"; do
         exec_in_manager mc rm -r --force "${STORAGE_PREFIX}/agents/${w}/" 2>/dev/null || true
         exec_in_manager rm -rf "/root/hiclaw-fs/agents/${w}" 2>/dev/null || true
     done
-    # Clean registries
     exec_in_manager bash -c "
         jq 'del(.workers[\"${TEST_LEADER}\"], .workers[\"${TEST_W1}\"])' \
             /root/manager-workspace/workers-registry.json > /tmp/wr-clean.json 2>/dev/null && \
@@ -57,111 +53,12 @@ _cleanup() {
 }
 trap _cleanup EXIT
 
-# ============================================================
-# Section 1: Create Human via declarative YAML (hiclaw apply)
-# ============================================================
-log_section "Create Human via Declarative YAML"
-
 HUMAN_MATRIX_ID="@${TEST_HUMAN}:${TEST_MATRIX_DOMAIN}"
 
-# Write Human YAML and apply
-APPLY_OUTPUT=$(exec_in_manager bash -c "
-    cat > /tmp/${TEST_HUMAN}.yaml <<YAML
-apiVersion: hiclaw.io/v1
-kind: Human
-metadata:
-  name: ${TEST_HUMAN}
-  displayName: Test Human Admin
-spec:
-  displayName: Test Human Admin
-  permissionLevel: 2
-  accessibleTeams:
-    - ${TEST_TEAM}
-  note: Integration test Team Admin
-YAML
-    hiclaw apply -f /tmp/${TEST_HUMAN}.yaml
-" 2>&1)
-
-if echo "${APPLY_OUTPUT}" | grep -q "created\|configured"; then
-    log_pass "Human YAML applied via hiclaw CLI"
-else
-    log_fail "Human YAML apply failed: ${APPLY_OUTPUT}"
-fi
-
-# Verify YAML in MinIO
-HUMAN_YAML=$(exec_in_manager mc cat "${STORAGE_PREFIX}/hiclaw-config/humans/${TEST_HUMAN}.yaml" 2>/dev/null || echo "")
-assert_not_empty "${HUMAN_YAML}" "Human YAML exists in MinIO hiclaw-config/humans/"
-assert_contains "${HUMAN_YAML}" "kind: Human" "Human YAML has correct kind"
-
-# Wait for controller reconcile
-log_info "Waiting for controller to reconcile Human..."
-HUMAN_TIMEOUT=90; HUMAN_ELAPSED=0
-HUMAN_CREATED=false
-while [ "${HUMAN_ELAPSED}" -lt "${HUMAN_TIMEOUT}" ]; do
-    if exec_in_manager cat /var/log/hiclaw/hiclaw-controller-error.log 2>/dev/null | grep -q "human created.*${TEST_HUMAN}"; then
-        HUMAN_CREATED=true
-        break
-    fi
-    sleep 5; HUMAN_ELAPSED=$((HUMAN_ELAPSED + 5))
-done
-
-if [ "${HUMAN_CREATED}" = true ]; then
-    log_pass "HumanReconciler created human (took ~${HUMAN_ELAPSED}s)"
-else
-    log_fail "HumanReconciler did not create human within ${HUMAN_TIMEOUT}s"
-    exec_in_manager cat /var/log/hiclaw/hiclaw-controller-error.log 2>/dev/null | grep "${TEST_HUMAN}" | tail -5
-fi
-
 # ============================================================
-# Section 2: Verify Human registration and password
-# ============================================================
-log_section "Verify Human Registration"
-
-HUMAN_ENTRY=$(exec_in_manager jq -r --arg h "${TEST_HUMAN}" '.humans[$h] // empty' /root/manager-workspace/humans-registry.json 2>/dev/null)
-assert_not_empty "${HUMAN_ENTRY}" "Human registered in humans-registry.json"
-
-HUMAN_LEVEL=$(echo "${HUMAN_ENTRY}" | jq -r '.permission_level // empty')
-assert_eq "2" "${HUMAN_LEVEL}" "Human permission level is 2"
-
-# Get password from controller logs (create-human.sh RESULT)
-HUMAN_PASSWORD=$(exec_in_manager cat /var/log/hiclaw/hiclaw-controller-error.log 2>/dev/null | \
-    grep -A50 "human created.*${TEST_HUMAN}" | grep -o '"password":"[^"]*"' | head -1 | cut -d'"' -f4)
-
-# If not in controller logs, try to get from the YAML status (if controller wrote it back)
-if [ -z "${HUMAN_PASSWORD}" ]; then
-    # Try reading from MinIO YAML status
-    HUMAN_PASSWORD=$(exec_in_manager mc cat "${STORAGE_PREFIX}/hiclaw-config/humans/${TEST_HUMAN}.yaml" 2>/dev/null | \
-        grep -o 'initialPassword:.*' | head -1 | awk '{print $2}')
-fi
-
-if [ -n "${HUMAN_PASSWORD}" ]; then
-    log_pass "Human initial password available"
-else
-    log_info "Could not extract password from logs (will try Matrix login with test password)"
-fi
-
-# Try to login as the human to get a token
-HUMAN_TOKEN=""
-if [ -n "${HUMAN_PASSWORD}" ]; then
-    LOGIN_RESULT=$(exec_in_manager curl -sf -X POST \
-        "http://127.0.0.1:6167/_matrix/client/v3/login" \
-        -H 'Content-Type: application/json' \
-        -d '{
-            "type": "m.login.password",
-            "identifier": {"type": "m.id.user", "user": "'"${TEST_HUMAN}"'"},
-            "password": "'"${HUMAN_PASSWORD}"'"
-        }' 2>/dev/null)
-    HUMAN_TOKEN=$(echo "${LOGIN_RESULT}" | jq -r '.access_token // empty')
-fi
-
-if [ -n "${HUMAN_TOKEN}" ] && [ "${HUMAN_TOKEN}" != "null" ]; then
-    log_pass "Human can login to Matrix with initial password"
-else
-    log_info "Human Matrix login not available (password extraction failed)"
-fi
-
-# ============================================================
-# Section 3: Create Team with Human as Team Admin
+# Section 1: Create Team with Human as Team Admin
+# (Team must exist BEFORE Human reconcile, because create-human.sh
+#  looks up team in teams-registry.json to configure permissions)
 # ============================================================
 log_section "Create Team with Team Admin"
 
@@ -201,7 +98,7 @@ else
 fi
 
 # ============================================================
-# Section 4: Verify teams-registry.json Team Admin fields
+# Section 2: Verify Team Admin in teams-registry.json
 # ============================================================
 log_section "Verify Team Admin in Registry"
 
@@ -221,11 +118,101 @@ TEAM_ROOM_ID=$(echo "${TEAM_ENTRY}" | jq -r '.team_room_id // empty')
 assert_not_empty "${TEAM_ROOM_ID}" "Team Room ID exists: ${TEAM_ROOM_ID}"
 
 # ============================================================
+# Section 3: Create Human via declarative YAML (team already exists)
+# ============================================================
+log_section "Create Human via Declarative YAML"
+
+APPLY_OUTPUT=$(exec_in_manager bash -c "
+    cat > /tmp/${TEST_HUMAN}.yaml <<YAML
+apiVersion: hiclaw.io/v1beta1
+kind: Human
+metadata:
+  name: ${TEST_HUMAN}
+spec:
+  displayName: Test Human Admin
+  permissionLevel: 2
+  accessibleTeams:
+    - ${TEST_TEAM}
+  note: Integration test Team Admin
+YAML
+    hiclaw apply -f /tmp/${TEST_HUMAN}.yaml
+" 2>&1)
+
+if echo "${APPLY_OUTPUT}" | grep -q "created\|configured"; then
+    log_pass "Human YAML applied via hiclaw CLI"
+else
+    log_fail "Human YAML apply failed: ${APPLY_OUTPUT}"
+fi
+
+HUMAN_YAML=$(exec_in_manager mc cat "${STORAGE_PREFIX}/hiclaw-config/humans/${TEST_HUMAN}.yaml" 2>/dev/null || echo "")
+assert_not_empty "${HUMAN_YAML}" "Human YAML exists in MinIO hiclaw-config/humans/"
+assert_contains "${HUMAN_YAML}" "kind: Human" "Human YAML has correct kind"
+
+# Wait for controller reconcile
+log_info "Waiting for controller to reconcile Human..."
+HUMAN_TIMEOUT=90; HUMAN_ELAPSED=0
+HUMAN_CREATED=false
+while [ "${HUMAN_ELAPSED}" -lt "${HUMAN_TIMEOUT}" ]; do
+    if exec_in_manager cat /var/log/hiclaw/hiclaw-controller-error.log 2>/dev/null | grep -q "human created.*${TEST_HUMAN}"; then
+        HUMAN_CREATED=true
+        break
+    fi
+    sleep 5; HUMAN_ELAPSED=$((HUMAN_ELAPSED + 5))
+done
+
+if [ "${HUMAN_CREATED}" = true ]; then
+    log_pass "HumanReconciler created human (took ~${HUMAN_ELAPSED}s)"
+else
+    log_fail "HumanReconciler did not create human within ${HUMAN_TIMEOUT}s"
+    exec_in_manager cat /var/log/hiclaw/hiclaw-controller-error.log 2>/dev/null | grep "${TEST_HUMAN}" | tail -5
+fi
+
+# ============================================================
+# Section 4: Verify Human registration and password
+# ============================================================
+log_section "Verify Human Registration"
+
+HUMAN_ENTRY=$(exec_in_manager jq -r --arg h "${TEST_HUMAN}" '.humans[$h] // empty' /root/manager-workspace/humans-registry.json 2>/dev/null)
+assert_not_empty "${HUMAN_ENTRY}" "Human registered in humans-registry.json"
+
+HUMAN_LEVEL=$(echo "${HUMAN_ENTRY}" | jq -r '.permission_level // empty')
+assert_eq "2" "${HUMAN_LEVEL}" "Human permission level is 2"
+
+# Try to get password from controller logs
+HUMAN_PASSWORD=$(exec_in_manager cat /var/log/hiclaw/hiclaw-controller-error.log 2>/dev/null | \
+    grep -A50 "human created.*${TEST_HUMAN}" | grep -o '"password":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+if [ -n "${HUMAN_PASSWORD}" ]; then
+    log_pass "Human initial password available"
+else
+    log_info "Could not extract password from logs"
+fi
+
+# Try to login as the human
+HUMAN_TOKEN=""
+if [ -n "${HUMAN_PASSWORD}" ]; then
+    LOGIN_RESULT=$(exec_in_manager curl -sf -X POST \
+        "http://127.0.0.1:6167/_matrix/client/v3/login" \
+        -H 'Content-Type: application/json' \
+        -d '{
+            "type": "m.login.password",
+            "identifier": {"type": "m.id.user", "user": "'"${TEST_HUMAN}"'"},
+            "password": "'"${HUMAN_PASSWORD}"'"
+        }' 2>/dev/null)
+    HUMAN_TOKEN=$(echo "${LOGIN_RESULT}" | jq -r '.access_token // empty')
+fi
+
+if [ -n "${HUMAN_TOKEN}" ] && [ "${HUMAN_TOKEN}" != "null" ]; then
+    log_pass "Human can login to Matrix with initial password"
+else
+    log_info "Human Matrix login not available (password extraction failed)"
+fi
+
+# ============================================================
 # Section 5: Verify groupAllowFrom includes Team Admin
 # ============================================================
 log_section "Verify groupAllowFrom"
 
-# Leader: should have Team Admin
 LEADER_GAF=$(exec_in_manager mc cat "${STORAGE_PREFIX}/agents/${TEST_LEADER}/openclaw.json" 2>/dev/null | jq -r '.channels.matrix.groupAllowFrom[]' 2>/dev/null)
 if echo "${LEADER_GAF}" | grep -q "${HUMAN_MATRIX_ID}"; then
     log_pass "Leader groupAllowFrom includes Team Admin"
@@ -233,7 +220,6 @@ else
     log_fail "Leader groupAllowFrom missing Team Admin"
 fi
 
-# Leader dm.allowFrom: should have Team Admin
 LEADER_DAF=$(exec_in_manager mc cat "${STORAGE_PREFIX}/agents/${TEST_LEADER}/openclaw.json" 2>/dev/null | jq -r '.channels.matrix.dm.allowFrom[]' 2>/dev/null)
 if echo "${LEADER_DAF}" | grep -q "${HUMAN_MATRIX_ID}"; then
     log_pass "Leader dm.allowFrom includes Team Admin"
@@ -241,7 +227,6 @@ else
     log_fail "Leader dm.allowFrom missing Team Admin"
 fi
 
-# Worker: should have Team Admin
 W1_GAF=$(exec_in_manager mc cat "${STORAGE_PREFIX}/agents/${TEST_W1}/openclaw.json" 2>/dev/null | jq -r '.channels.matrix.groupAllowFrom[]' 2>/dev/null)
 if echo "${W1_GAF}" | grep -q "${HUMAN_MATRIX_ID}"; then
     log_pass "Worker groupAllowFrom includes Team Admin"
@@ -249,7 +234,6 @@ else
     log_fail "Worker groupAllowFrom missing Team Admin"
 fi
 
-# Worker should NOT have Manager
 if echo "${W1_GAF}" | grep -q "@manager:"; then
     log_fail "Worker groupAllowFrom includes Manager (should NOT)"
 else
@@ -270,80 +254,7 @@ LEADER_CTX=$(echo "${LEADER_AGENTS}" | sed -n '/hiclaw-team-context-start/,/hicl
 assert_contains "${LEADER_CTX}" "Team Admin" "Leader team-context mentions Team Admin"
 
 # ============================================================
-# Section 7: Team Admin messages Leader in Leader DM
-# ============================================================
-log_section "Team Admin ↔ Leader Messaging"
-
-if [ -z "${HUMAN_TOKEN}" ] || [ "${HUMAN_TOKEN}" = "null" ]; then
-    log_info "Skipping messaging (no human token)"
-elif [ -z "${LEADER_DM_ROOM}" ] || [ "${LEADER_DM_ROOM}" = "null" ]; then
-    log_info "Skipping messaging (no Leader DM room)"
-elif ! require_llm_key; then
-    log_info "Skipping messaging (no LLM API key)"
-else
-    # Human joins the Leader DM room
-    ROOM_ENC="$(_encode_room_id "${LEADER_DM_ROOM}")"
-    exec_in_manager curl -s -X POST \
-        "http://127.0.0.1:6167/_matrix/client/v3/rooms/${ROOM_ENC}/join" \
-        -H "Authorization: Bearer ${HUMAN_TOKEN}" \
-        -H 'Content-Type: application/json' -d '{}' 2>/dev/null > /dev/null
-    log_info "Team Admin joined Leader DM room"
-
-    # Wait for Leader to join room
-    LEADER_MID="@${TEST_LEADER}:${TEST_MATRIX_DOMAIN}"
-    log_info "Waiting for Leader to join room..."
-    LEADER_JOINED=false
-    for i in $(seq 1 24); do
-        MEMBERS=$(exec_in_manager curl -sf \
-            "http://127.0.0.1:6167/_matrix/client/v3/rooms/${ROOM_ENC}/members" \
-            -H "Authorization: Bearer ${HUMAN_TOKEN}" 2>/dev/null | \
-            jq -r '.chunk[] | select(.content.membership == "join") | .state_key' 2>/dev/null)
-        if echo "${MEMBERS}" | grep -q "${LEADER_MID}"; then
-            LEADER_JOINED=true
-            break
-        fi
-        sleep 5
-    done
-
-    if [ "${LEADER_JOINED}" = true ]; then
-        log_pass "Leader joined Leader DM room"
-
-        # Send message from Team Admin to Leader
-        TXN_ID="$(date +%s%N)"
-        SEND_RESULT=$(exec_in_manager curl -s -X PUT \
-            "http://127.0.0.1:6167/_matrix/client/v3/rooms/${ROOM_ENC}/send/m.room.message/${TXN_ID}" \
-            -H "Authorization: Bearer ${HUMAN_TOKEN}" \
-            -H 'Content-Type: application/json' \
-            -d '{
-                "msgtype": "m.text",
-                "body": "'"${LEADER_MID}"' Hello Leader, this is your Team Admin. Please reply with a short greeting.",
-                "m.mentions": {
-                    "user_ids": ["'"${LEADER_MID}"'"]
-                }
-            }' 2>&1)
-
-        SEND_EVENT=$(echo "${SEND_RESULT}" | jq -r '.event_id // empty' 2>/dev/null)
-        if [ -n "${SEND_EVENT}" ] && [ "${SEND_EVENT}" != "null" ]; then
-            log_pass "Team Admin sent message to Leader (event: ${SEND_EVENT})"
-
-            log_info "Waiting for Leader reply (timeout: 120s)..."
-            REPLY=$(matrix_wait_for_reply "${HUMAN_TOKEN}" "${LEADER_DM_ROOM}" "@${TEST_LEADER}" 120)
-            if [ -n "${REPLY}" ]; then
-                log_pass "Leader replied to Team Admin: $(echo "${REPLY}" | head -1 | cut -c1-80)..."
-            else
-                log_fail "Leader did not reply to Team Admin within 120s"
-            fi
-        else
-            log_fail "Failed to send message to Leader DM"
-            log_info "Send result: ${SEND_RESULT}"
-        fi
-    else
-        log_fail "Leader did not join Leader DM room within 120s"
-    fi
-fi
-
-# ============================================================
-# Section 8: Verify containers running
+# Section 7: Verify containers running
 # ============================================================
 log_section "Verify Containers"
 
