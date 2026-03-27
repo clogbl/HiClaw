@@ -3,7 +3,7 @@
 #
 # End-to-end test covering the complete declarative import flow:
 #   1. Create a test ZIP package (manifest.json + SOUL.md + custom skill)
-#   2. hiclaw apply --zip uploads ZIP + YAML to MinIO
+#   2. hiclaw apply worker --zip uploads ZIP + YAML to MinIO
 #   3. Controller reconcile: mc mirror → fsnotify → kine → kube-apiserver → WorkerReconciler
 #   4. create-worker.sh runs: Matrix account + Room + Higress consumer + container
 #   5. Worker container is running
@@ -128,23 +128,23 @@ else
 fi
 
 # ============================================================
-# Section 3: Import via hiclaw apply --zip
+# Section 3: Import via hiclaw apply worker --zip
 # ============================================================
-log_section "Import Worker via hiclaw apply --zip"
+log_section "Import Worker via hiclaw apply worker --zip"
 
-APPLY_OUTPUT=$(exec_in_manager hiclaw apply --zip "${WORK_DIR}/${TEST_WORKER}.zip" --name "${TEST_WORKER}" 2>&1)
+APPLY_OUTPUT=$(exec_in_manager hiclaw apply worker --zip "${WORK_DIR}/${TEST_WORKER}.zip" --name "${TEST_WORKER}" 2>&1)
 APPLY_EXIT=$?
 
 if [ ${APPLY_EXIT} -eq 0 ]; then
-    log_pass "hiclaw apply --zip exited successfully"
+    log_pass "hiclaw apply worker --zip exited successfully"
 else
-    log_fail "hiclaw apply --zip failed (exit: ${APPLY_EXIT})"
+    log_fail "hiclaw apply worker --zip failed (exit: ${APPLY_EXIT})"
 fi
 
 if echo "${APPLY_OUTPUT}" | grep -q "created\|applied\|configured"; then
-    log_pass "hiclaw apply --zip reports resource created"
+    log_pass "hiclaw apply worker --zip reports resource created"
 else
-    log_fail "hiclaw apply --zip did not report creation"
+    log_fail "hiclaw apply worker --zip did not report creation"
 fi
 
 # ============================================================
@@ -177,7 +177,7 @@ assert_contains "${GET_LIST}" "${TEST_WORKER}" "Worker visible in 'hiclaw get wo
 # ============================================================
 log_section "Idempotency"
 
-REIMPORT_OUTPUT=$(exec_in_manager hiclaw apply --zip "${WORK_DIR}/${TEST_WORKER}.zip" --name "${TEST_WORKER}" 2>&1)
+REIMPORT_OUTPUT=$(exec_in_manager hiclaw apply worker --zip "${WORK_DIR}/${TEST_WORKER}.zip" --name "${TEST_WORKER}" 2>&1)
 if echo "${REIMPORT_OUTPUT}" | grep -q "updated\|configured"; then
     log_pass "Re-import correctly reports 'updated' (idempotent)"
 else

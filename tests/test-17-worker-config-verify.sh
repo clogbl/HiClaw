@@ -2,7 +2,7 @@
 # test-17-worker-config-verify.sh - Case 17: Verify Worker import config artifacts
 #
 # Tests single worker import (create + update) and verifies MinIO artifacts:
-#   1. Create worker via hiclaw apply --zip
+#   1. Create worker via hiclaw apply worker --zip
 #   2. Verify AGENTS.md: builtin markers, coordination context block, user content
 #   3. Verify builtin skills pushed to MinIO
 #   4. Verify openclaw.json, SOUL.md in MinIO
@@ -83,7 +83,7 @@ SKILL
     cd ${WORK_DIR}/package && zip -q -r ${WORK_DIR}/${TEST_WORKER}.zip .
 " 2>/dev/null
 
-APPLY_OUTPUT=$(exec_in_manager hiclaw apply --zip "${WORK_DIR}/${TEST_WORKER}.zip" --name "${TEST_WORKER}" 2>&1)
+APPLY_OUTPUT=$(exec_in_manager hiclaw apply worker --zip "${WORK_DIR}/${TEST_WORKER}.zip" --name "${TEST_WORKER}" 2>&1)
 if echo "${APPLY_OUTPUT}" | grep -q "created"; then
     log_pass "Worker imported successfully"
 else
@@ -237,7 +237,7 @@ MANIFEST
     cd ${WORK_DIR}/package && zip -q -r ${WORK_DIR}/${TEST_WORKER}.zip .
 " 2>/dev/null
 
-REIMPORT_OUTPUT=$(exec_in_manager hiclaw apply --zip "${WORK_DIR}/${TEST_WORKER}.zip" --name "${TEST_WORKER}" 2>&1)
+REIMPORT_OUTPUT=$(exec_in_manager hiclaw apply worker --zip "${WORK_DIR}/${TEST_WORKER}.zip" --name "${TEST_WORKER}" 2>&1)
 assert_contains "${REIMPORT_OUTPUT}" "updated" "Re-import reports 'updated'"
 
 # Wait for controller to reconcile the update (poll for "worker updated" in logs)
