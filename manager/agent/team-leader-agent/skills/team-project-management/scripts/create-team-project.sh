@@ -12,6 +12,9 @@
 set -euo pipefail
 source /opt/hiclaw/scripts/lib/hiclaw-env.sh
 
+# Ensure mc can find its config even when HOME is overridden
+export MC_CONFIG_DIR="${MC_CONFIG_DIR:-/root/manager-workspace/.mc}"
+
 PROJECT_ID=""
 PROJECT_TITLE=""
 WORKERS_CSV=""
@@ -118,7 +121,8 @@ echo "  Project files created at ${PROJECT_DIR}"
 # ============================================================
 # Step 2: Sync to MinIO
 # ============================================================
-mc mirror "${PROJECT_DIR}/" "${HICLAW_STORAGE_PREFIX}/teams/${TEAM_NAME}/projects/${PROJECT_ID}/" --overwrite 2>&1 | tail -3
+mc cp "${PROJECT_DIR}/meta.json" "${HICLAW_STORAGE_PREFIX}/teams/${TEAM_NAME}/projects/${PROJECT_ID}/meta.json" 2>&1 | tail -1
+mc cp "${PROJECT_DIR}/plan.md" "${HICLAW_STORAGE_PREFIX}/teams/${TEAM_NAME}/projects/${PROJECT_ID}/plan.md" 2>&1 | tail -1
 mc stat "${HICLAW_STORAGE_PREFIX}/teams/${TEAM_NAME}/projects/${PROJECT_ID}/meta.json" > /dev/null 2>&1 \
     || { echo "ERROR: meta.json not found in MinIO after sync" >&2; exit 1; }
 echo "  MinIO sync verified"
