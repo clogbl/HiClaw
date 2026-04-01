@@ -1354,30 +1354,13 @@ class MatrixChannel(BaseChannel):
         """Add Matrix mentions to an outgoing event content dict.
 
         Scans the message body for @user:domain patterns and populates
-        ``m.mentions.user_ids`` (MSC3952). Falls back to the reply target
-        ``user_id`` if no mentions are found in the text.
-
-        Also prepends an HTML pill for the reply target so clients
-        render the mention visually.
+        ``m.mentions.user_ids`` (MSC3952). Does NOT modify the body text —
+        the LLM is responsible for including @mentions in its output.
         """
         body = content.get("body", "")
         mentioned_ids = self._extract_mentions_from_text(body)
         if mentioned_ids:
             content["m.mentions"] = {"user_ids": mentioned_ids}
-
-        display_name = self._resolve_display_name(user_id, room_id)
-        pill = (
-            f'<a href="https://matrix.to/#/{user_id}">'
-            f"{display_name}</a>"
-        )
-
-        body = content.get("body", "")
-        # Reuse already-converted formatted_body (set by send()) or convert now
-        html_body = content.get("formatted_body") or _md_to_html(body)
-        content["format"] = "org.matrix.custom.html"
-        content["formatted_body"] = f"{pill} {html_body}" if html_body else pill
-        # Prepend plain-text fallback so non-HTML clients also see the mention
-        content["body"] = f"{display_name} {body}" if body else display_name
 
     def _resolve_display_name(self, user_id: str, room_id: str) -> str:
         """Best-effort display name for *user_id* in *room_id*."""

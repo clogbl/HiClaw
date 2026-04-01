@@ -244,20 +244,38 @@ fi
 if [ -n "${LEADER_DM_ROOM_ID}" ]; then
     LEADER_ARGS+=(--leader-dm-room-id "${LEADER_DM_ROOM_ID}")
 fi
-# Merge team-level + leader-specific comm policy
-if [ -n "${TEAM_CHANNEL_POLICY_JSON}" ] || [ -n "${LEADER_CHANNEL_POLICY_JSON}" ]; then
-    LEADER_MERGED_POLICY=$(jq -n \
-        --argjson team "${TEAM_CHANNEL_POLICY_JSON:-null}" \
-        --argjson member "${LEADER_CHANNEL_POLICY_JSON:-null}" \
-        '{
-            groupAllowExtra: ((($team.groupAllowExtra // []) + ($member.groupAllowExtra // [])) | unique),
-            groupDenyExtra:  ((($team.groupDenyExtra // [])  + ($member.groupDenyExtra // []))  | unique),
-            dmAllowExtra:    ((($team.dmAllowExtra // [])    + ($member.dmAllowExtra // []))    | unique),
-            dmDenyExtra:     ((($team.dmDenyExtra // [])     + ($member.dmDenyExtra // []))     | unique)
-        } | with_entries(select(.value | length > 0))')
-    if [ "${LEADER_MERGED_POLICY}" != "{}" ]; then
-        LEADER_ARGS+=(--channel-policy "${LEADER_MERGED_POLICY}")
-    fi
+# Build channel policy: include all workers + Team Admin in groupAllowExtra
+# so Leader's groupAllowFrom is correct from the start (no post-hoc patching)
+LEADER_GROUP_ALLOW_EXTRA="[]"
+for w_name in "${WORKER_NAMES[@]}"; do
+    w_name=$(echo "${w_name}" | tr -d ' ')
+    [ -z "${w_name}" ] && continue
+    LEADER_GROUP_ALLOW_EXTRA=$(echo "${LEADER_GROUP_ALLOW_EXTRA}" | jq --arg w "${w_name}" '. += [$w]')
+done
+if [ -n "${TEAM_ADMIN_MID}" ]; then
+    LEADER_GROUP_ALLOW_EXTRA=$(echo "${LEADER_GROUP_ALLOW_EXTRA}" | jq --arg a "${TEAM_ADMIN_MID}" '. += [$a]')
+fi
+# Merge with team-level + leader-specific comm policy
+LEADER_MERGED_POLICY=$(jq -n \
+    --argjson team "${TEAM_CHANNEL_POLICY_JSON:-null}" \
+    --argjson member "${LEADER_CHANNEL_POLICY_JSON:-null}" \
+    --argjson workers "${LEADER_GROUP_ALLOW_EXTRA}" \
+    '{
+        groupAllowExtra: ((($team.groupAllowExtra // []) + ($member.groupAllowExtra // []) + $workers) | unique),
+        groupDenyExtra:  ((($team.groupDenyExtra // [])  + ($member.groupDenyExtra // []))  | unique),
+        dmAllowExtra:    ((($team.dmAllowExtra // [])    + ($member.dmAllowExtra // []))    | unique),
+        dmDenyExtra:     ((($team.dmDenyExtra // [])     + ($member.dmDenyExtra // []))     | unique)
+    } | with_entries(select(.value | length > 0))')
+if [ -n "${LEADER_MERGED_POLICY}" ] && [ "${LEADER_MERGED_POLICY}" != "{}" ]; then
+    LEADER_ARGS+=(--channel-policy "${LEADER_MERGED_POLICY}")
+fi
+# Also add Team Admin to Leader's dm.allowFrom via dmAllowExtra
+if [ -n "${TEAM_ADMIN_MID}" ]; then
+    # Re-merge with dmAllowExtra including Team Admin
+    LEADER_MERGED_POLICY=$(echo "${LEADER_MERGED_POLICY}" | jq --arg a "${TEAM_ADMIN_MID}" \
+        '.dmAllowExtra = ((.dmAllowExtra // []) + [$a] | unique)')
+    LEADER_ARGS=("${LEADER_ARGS[@]/%--channel-policy*/}")
+    LEADER_ARGS+=(--channel-policy "${LEADER_MERGED_POLICY}")
 fi
 
 LEADER_RESULT=$(bash /opt/hiclaw/agent/skills/worker-management/scripts/create-worker.sh "${LEADER_ARGS[@]}" 2>&1)
@@ -298,21 +316,36 @@ for i in "${!WORKER_NAMES[@]}"; do
     if [ -n "${TEAM_ADMIN_MID}" ]; then
         W_ARGS+=(--team-admin-matrix-id "${TEAM_ADMIN_MID}")
     fi
-    # Merge team-level + per-worker comm policy
+    # Build channel policy: include Team Admin + peer workers in groupAllowExtra
+    # so worker's groupAllowFrom is correct from the start
+    W_GROUP_ALLOW_EXTRA="[]"
+    # Add Team Admin
+    if [ -n "${TEAM_ADMIN_MID}" ]; then
+        W_GROUP_ALLOW_EXTRA=$(echo "${W_GROUP_ALLOW_EXTRA}" | jq --arg a "${TEAM_ADMIN_MID}" '. += [$a]')
+    fi
+    # Add peer workers (if peer mentions enabled)
+    if [ "${PEER_MENTIONS}" = "true" ]; then
+        for j in "${!WORKER_NAMES[@]}"; do
+            peer=$(echo "${WORKER_NAMES[$j]}" | tr -d ' ')
+            [ -z "${peer}" ] && continue
+            [ "${peer}" = "${w_name}" ] && continue
+            W_GROUP_ALLOW_EXTRA=$(echo "${W_GROUP_ALLOW_EXTRA}" | jq --arg w "${peer}" '. += [$w]')
+        done
+    fi
+    # Merge with team-level + per-worker comm policy
     w_channel_policy="${WORKER_CHANNEL_POLICIES_ARR[$i]:-}"
-    if [ -n "${TEAM_CHANNEL_POLICY_JSON}" ] || [ -n "${w_channel_policy}" ]; then
-        W_MERGED_POLICY=$(jq -n \
-            --argjson team "${TEAM_CHANNEL_POLICY_JSON:-null}" \
-            --argjson member "${w_channel_policy:-null}" \
-            '{
-                groupAllowExtra: ((($team.groupAllowExtra // []) + ($member.groupAllowExtra // [])) | unique),
-                groupDenyExtra:  ((($team.groupDenyExtra // [])  + ($member.groupDenyExtra // []))  | unique),
-                dmAllowExtra:    ((($team.dmAllowExtra // [])    + ($member.dmAllowExtra // []))    | unique),
-                dmDenyExtra:     ((($team.dmDenyExtra // [])     + ($member.dmDenyExtra // []))     | unique)
-            } | with_entries(select(.value | length > 0))')
-        if [ "${W_MERGED_POLICY}" != "{}" ]; then
-            W_ARGS+=(--channel-policy "${W_MERGED_POLICY}")
-        fi
+    W_MERGED_POLICY=$(jq -n \
+        --argjson team "${TEAM_CHANNEL_POLICY_JSON:-null}" \
+        --argjson member "${w_channel_policy:-null}" \
+        --argjson extra "${W_GROUP_ALLOW_EXTRA}" \
+        '{
+            groupAllowExtra: ((($team.groupAllowExtra // []) + ($member.groupAllowExtra // []) + $extra) | unique),
+            groupDenyExtra:  ((($team.groupDenyExtra // [])  + ($member.groupDenyExtra // []))  | unique),
+            dmAllowExtra:    ((($team.dmAllowExtra // [])    + ($member.dmAllowExtra // []))    | unique),
+            dmDenyExtra:     ((($team.dmDenyExtra // [])     + ($member.dmDenyExtra // []))     | unique)
+        } | with_entries(select(.value | length > 0))')
+    if [ -n "${W_MERGED_POLICY}" ] && [ "${W_MERGED_POLICY}" != "{}" ]; then
+        W_ARGS+=(--channel-policy "${W_MERGED_POLICY}")
     fi
 
     W_RESULT=$(bash /opt/hiclaw/agent/skills/worker-management/scripts/create-worker.sh "${W_ARGS[@]}" 2>&1)
@@ -404,124 +437,10 @@ if [ -n "${LEADER_DM_ROOM_ID}" ]; then
 fi
 
 # ============================================================
-# Step 5: Update Leader's groupAllowFrom to include team workers + Team Admin
-# ============================================================
-log "Step 5: Updating Leader's groupAllowFrom..."
-LEADER_CONFIG="/root/hiclaw-fs/agents/${LEADER_NAME}/openclaw.json"
-if [ -f "${LEADER_CONFIG}" ]; then
-    for w_name in "${WORKER_NAMES[@]}"; do
-        w_name=$(echo "${w_name}" | tr -d ' ')
-        [ -z "${w_name}" ] && continue
-        W_MATRIX_ID="@${w_name}:${MATRIX_DOMAIN}"
-        jq --arg w "${W_MATRIX_ID}" \
-            'if (.channels.matrix.groupAllowFrom | index($w)) then .
-             else .channels.matrix.groupAllowFrom += [$w]
-             end' \
-            "${LEADER_CONFIG}" > /tmp/leader-config-tmp.json
-        mv /tmp/leader-config-tmp.json "${LEADER_CONFIG}"
-    done
-
-    # Add Team Admin to Leader's groupAllowFrom
-    if [ -n "${TEAM_ADMIN_MID}" ]; then
-        jq --arg a "${TEAM_ADMIN_MID}" \
-            'if (.channels.matrix.groupAllowFrom | index($a)) then .
-             else .channels.matrix.groupAllowFrom += [$a]
-             end
-             | if (.channels.matrix.dm.allowFrom | index($a)) then .
-               else .channels.matrix.dm.allowFrom += [$a]
-               end' \
-            "${LEADER_CONFIG}" > /tmp/leader-config-tmp.json
-        mv /tmp/leader-config-tmp.json "${LEADER_CONFIG}"
-        log "  Added Team Admin to Leader's groupAllowFrom + dm.allowFrom"
-    fi
-
-    log "  Leader groupAllowFrom updated"
-
-    # Push updated config to MinIO
-    ensure_mc_credentials 2>/dev/null || true
-    mc cp "${LEADER_CONFIG}" "${HICLAW_STORAGE_PREFIX}/agents/${LEADER_NAME}/openclaw.json" 2>/dev/null \
-        || log "  WARNING: Failed to push leader config to MinIO"
-fi
-
-# Add Team Admin to each Worker's groupAllowFrom
-if [ -n "${TEAM_ADMIN_MID}" ]; then
-    log "  Adding Team Admin to Workers' groupAllowFrom..."
-    for w_name in "${WORKER_NAMES[@]}"; do
-        w_name=$(echo "${w_name}" | tr -d ' ')
-        [ -z "${w_name}" ] && continue
-        W_CONFIG="/root/hiclaw-fs/agents/${w_name}/openclaw.json"
-        if [ -f "${W_CONFIG}" ]; then
-            jq --arg a "${TEAM_ADMIN_MID}" \
-                'if (.channels.matrix.groupAllowFrom | index($a)) then .
-                 else .channels.matrix.groupAllowFrom += [$a]
-                 end' \
-                "${W_CONFIG}" > /tmp/worker-config-tmp.json
-            mv /tmp/worker-config-tmp.json "${W_CONFIG}"
-            mc cp "${W_CONFIG}" "${HICLAW_STORAGE_PREFIX}/agents/${w_name}/openclaw.json" 2>/dev/null \
-                || log "  WARNING: Failed to push ${w_name} config to MinIO"
-        fi
-    done
-    log "  Team Admin added to all Workers' groupAllowFrom"
-fi
-
-# ============================================================
-# Step 5a: Enable peer mentions for team workers (default: true)
-# Each worker gets all other team workers added to groupAllowFrom.
-# After adding peers, re-apply groupDenyExtra to honor deny overrides.
-# ============================================================
-if [ "${PEER_MENTIONS}" = "true" ]; then
-    log "Step 5a: Enabling peer mentions for team workers..."
-    ensure_mc_credentials 2>/dev/null || true
-    for i in "${!WORKER_NAMES[@]}"; do
-        target=$(echo "${WORKER_NAMES[$i]}" | tr -d ' ')
-        [ -z "${target}" ] && continue
-        TARGET_CONFIG="/root/hiclaw-fs/agents/${target}/openclaw.json"
-        [ ! -f "${TARGET_CONFIG}" ] && continue
-
-        # Add all other workers to this worker's groupAllowFrom
-        for j in "${!WORKER_NAMES[@]}"; do
-            peer=$(echo "${WORKER_NAMES[$j]}" | tr -d ' ')
-            [ -z "${peer}" ] && continue
-            [ "${peer}" = "${target}" ] && continue
-            PEER_ID="@${peer}:${MATRIX_DOMAIN}"
-            jq --arg w "${PEER_ID}" \
-                'if (.channels.matrix.groupAllowFrom | index($w)) then .
-                 else .channels.matrix.groupAllowFrom += [$w]
-                 end' \
-                "${TARGET_CONFIG}" > /tmp/peer-mention-tmp.json
-            mv /tmp/peer-mention-tmp.json "${TARGET_CONFIG}"
-        done
-
-        # Re-apply groupDenyExtra from merged comm policy (team + per-worker)
-        # to ensure deny still wins after peer additions
-        w_channel_policy="${WORKER_CHANNEL_POLICIES_ARR[$i]:-}"
-        DENY_ENTRIES=$(jq -n \
-            --argjson team "${TEAM_CHANNEL_POLICY_JSON:-null}" \
-            --argjson member "${w_channel_policy:-null}" \
-            --arg domain "${MATRIX_DOMAIN}" \
-            '(($team.groupDenyExtra // []) + ($member.groupDenyExtra // []))
-             | map(if startswith("@") then . else "@\(.):\($domain)" end)
-             | unique')
-        if [ "${DENY_ENTRIES}" != "[]" ]; then
-            jq --argjson deny "${DENY_ENTRIES}" \
-                '.channels.matrix.groupAllowFrom |= [.[] | select(. as $id | $deny | index($id) | not)]' \
-                "${TARGET_CONFIG}" > /tmp/peer-deny-tmp.json
-            mv /tmp/peer-deny-tmp.json "${TARGET_CONFIG}"
-        fi
-
-        mc cp "${TARGET_CONFIG}" "${HICLAW_STORAGE_PREFIX}/agents/${target}/openclaw.json" 2>/dev/null \
-            || log "  WARNING: Failed to push ${target} config to MinIO"
-    done
-    log "  Peer mentions enabled for all team workers"
-else
-    log "Step 5a: Peer mentions disabled (peerMentions=false)"
-fi
-
-# ============================================================
-# Step 6: Initialize team storage space in MinIO
+# Step 5: Initialize team storage space in MinIO
 # Each team gets an isolated storage prefix: teams/{team-name}/
 # ============================================================
-log "Step 6: Initializing team storage space..."
+log "Step 5: Initializing team storage space..."
 TEAM_STORAGE_DIR="/root/hiclaw-fs/teams/${TEAM_NAME}"
 mkdir -p "${TEAM_STORAGE_DIR}/projects"
 mkdir -p "${TEAM_STORAGE_DIR}/tasks"
@@ -534,9 +453,9 @@ mc mirror "${TEAM_STORAGE_DIR}/" "${HICLAW_STORAGE_PREFIX}/teams/${TEAM_NAME}/" 
 log "  Team storage initialized at ${HICLAW_STORAGE_PREFIX}/teams/${TEAM_NAME}/"
 
 # ============================================================
-# Step 7: Update teams-registry.json
+# Step 6: Update teams-registry.json
 # ============================================================
-log "Step 7: Updating teams-registry.json..."
+log "Step 6: Updating teams-registry.json..."
 REGISTRY_ARGS=(
     --action add
     --team-name "${TEAM_NAME}"
@@ -556,12 +475,12 @@ fi
 bash /opt/hiclaw/agent/skills/team-management/scripts/manage-teams-registry.sh "${REGISTRY_ARGS[@]}"
 
 # ============================================================
-# Step 7b: Re-inject Leader's team-context with worker room IDs
+# Step 6b: Re-inject Leader's team-context with worker room IDs
 # Leader was created before workers, so its AGENTS.md team-context
 # is missing worker room IDs. Now that all workers are registered,
 # re-inject the full context.
 # ============================================================
-log "Step 7b: Re-injecting Leader team-context with worker room IDs..."
+log "Step 6b: Re-injecting Leader team-context with worker room IDs..."
 _leader_agents_minio="${HICLAW_STORAGE_PREFIX}/agents/${LEADER_NAME}/AGENTS.md"
 _leader_agents_tmp=$(mktemp /tmp/leader-agents-XXXXXX.md)
 _leader_ctx_tmp=$(mktemp /tmp/leader-ctx-XXXXXX.md)
@@ -634,7 +553,7 @@ fi
 rm -f "${_leader_agents_tmp}" "${_leader_ctx_tmp}"
 
 # ============================================================
-# Step 8: Backfill permissions for humans that reference this team
+# Step 7: Backfill permissions for humans that reference this team
 # If a Human was created before this team, their permissions were
 # skipped. Now that the team exists, configure them.
 # ============================================================
@@ -645,7 +564,7 @@ if [ -f "${HUMANS_REGISTRY}" ]; then
         "${HUMANS_REGISTRY}" 2>/dev/null)
 
     if [ -n "${PENDING_HUMANS}" ]; then
-        log "Step 8: Backfilling permissions for humans referencing ${TEAM_NAME}..."
+        log "Step 7: Backfilling permissions for humans referencing ${TEAM_NAME}..."
         ensure_mc_credentials 2>/dev/null || true
 
         for _human_name in ${PENDING_HUMANS}; do
@@ -692,10 +611,10 @@ if [ -f "${HUMANS_REGISTRY}" ]; then
             log "    Permissions configured for ${_human_name}"
         done
     else
-        log "Step 8: No pending humans for ${TEAM_NAME} (skipped)"
+        log "Step 7: No pending humans for ${TEAM_NAME} (skipped)"
     fi
 else
-    log "Step 8: No humans-registry.json found (skipped)"
+    log "Step 7: No humans-registry.json found (skipped)"
 fi
 
 # ============================================================
