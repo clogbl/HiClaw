@@ -175,3 +175,4 @@ Record image-affecting changes to `manager/`, `worker/`, `openclaw-base/` here b
 - refactor(network): replace ExtraHosts IP injection with Docker network aliases ([0eb635d](https://github.com/alibaba/hiclaw/commit/0eb635d))
 - refactor: unify DM room creation into manager agent startup ([0569d1a](https://github.com/alibaba/hiclaw/commit/0569d1a))
 - feat(memory): add default embedding model (text-embedding-v4) support for Manager and Worker, with openclaw→copaw bridge
+- feat(manager): add CoPaw runtime support for Manager container ([f6c8f8d](https://github.com/maplefeng-a/hiclaw/commit/f6c8f8d))

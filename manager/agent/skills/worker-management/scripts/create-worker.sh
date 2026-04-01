@@ -475,12 +475,12 @@ REGISTRY_FILE_EARLY="${HOME}/workers-registry.json"
 # ============================================================
 # Step 7: Update Manager groupAllowFrom
 # ============================================================
+MANAGER_CONFIG="${HOME}/openclaw.json"
 # For team workers, do NOT add to Manager's groupAllowFrom — they only talk to their Leader.
 if [ -n "${TEAM_LEADER_NAME}" ]; then
     log "Step 7: Skipping Manager groupAllowFrom (team worker reports to leader ${TEAM_LEADER_NAME})"
 else
     log "Step 7: Updating Manager groupAllowFrom..."
-    MANAGER_CONFIG="${HOME}/openclaw.json"
     WORKER_MATRIX_ID="@${WORKER_NAME}:${MATRIX_DOMAIN}"
     if [ -f "${MANAGER_CONFIG}" ]; then
         ALREADY_IN=$(jq -r --arg w "${WORKER_MATRIX_ID}" \
@@ -495,6 +495,33 @@ else
         else
             log "  ${WORKER_MATRIX_ID} already in groupAllowFrom"
         fi
+    fi
+fi
+
+# CoPaw runtime: sync group_allow_from from openclaw.json to agent.json and config.json
+# This ensures both files have the complete list, not just the new worker
+COPAW_AGENT_CONFIG="${HOME}/.copaw/workspaces/default/agent.json"
+COPAW_CONFIG="${HOME}/.copaw/config.json"
+
+# Get the full groupAllowFrom from openclaw.json
+GROUP_ALLOW_LIST=$(jq -c '.channels.matrix.groupAllowFrom // []' "${MANAGER_CONFIG}" 2>/dev/null)
+
+if [ -n "${GROUP_ALLOW_LIST}" ] && [ "${GROUP_ALLOW_LIST}" != "null" ]; then
+    # Update config.json
+    if [ -f "${COPAW_CONFIG}" ]; then
+        _tmp_cfg=$(mktemp)
+        jq --argjson list "${GROUP_ALLOW_LIST}" \
+            '.channels.matrix.group_allow_from = $list' \
+            "${COPAW_CONFIG}" > "${_tmp_cfg}" && mv "${_tmp_cfg}" "${COPAW_CONFIG}"
+        log "  Synced group_allow_from to config.json: ${GROUP_ALLOW_LIST}"
+    fi
+    # Update agent.json
+    if [ -f "${COPAW_AGENT_CONFIG}" ]; then
+        _tmp_cfg=$(mktemp)
+        jq --argjson list "${GROUP_ALLOW_LIST}" \
+            '.channels.matrix.group_allow_from = $list' \
+            "${COPAW_AGENT_CONFIG}" > "${_tmp_cfg}" && mv "${_tmp_cfg}" "${COPAW_AGENT_CONFIG}"
+        log "  Synced group_allow_from to agent.json: ${GROUP_ALLOW_LIST}"
     fi
 fi
 
