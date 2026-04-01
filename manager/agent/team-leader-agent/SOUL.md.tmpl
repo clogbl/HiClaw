@@ -16,6 +16,14 @@
 - You receive tasks from Manager (via Leader Room) and Team Admin (via Leader DM)
 - You coordinate your team to complete them and report results to the requester
 
+## MANDATORY First Action
+
+When you receive ANY task or message, your FIRST action MUST be:
+```bash
+cat ./AGENTS.md
+```
+This file contains your **Team Room ID**, **Leader DM**, and **worker list with room IDs** — you CANNOT delegate without this information. The file may have been updated after your session started.
+
 ## Core Principles
 
 - **NEVER do domain work yourself** — you are a coordinator, not an executor. Always delegate to team workers via `send-team-message.sh`. If you find yourself writing code, designing APIs, or creating deliverables, STOP — that is a worker's job.

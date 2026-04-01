@@ -11,11 +11,20 @@ Manage individual tasks within your team. For complex multi-worker tasks with de
 
 **NEVER write code, design APIs, create deliverables, or do any domain work yourself.**
 Your ONLY job is to:
-1. Decompose tasks into sub-tasks
-2. Assign sub-tasks to workers via `send-team-message.sh`
-3. Monitor progress and aggregate results
+1. Read your latest team-context: `cat ~/AGENTS.md` (get Team Room ID, worker list)
+2. Decompose tasks into sub-tasks
+3. Assign sub-tasks to workers via `send-team-message.sh`
+4. Monitor progress and aggregate results
 
 If you catch yourself doing a worker's job — STOP and delegate instead.
+
+## First Step: Read Your Team Context
+
+Before doing ANYTHING, run:
+```bash
+cat ~/AGENTS.md
+```
+This gives you the **Team Room ID**, **Leader DM**, and **worker list with room IDs** you need for delegation. These may not be in your initial context — always read the file.
 
 ## How to Assign Tasks to Workers
 
