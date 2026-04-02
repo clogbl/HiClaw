@@ -35,3 +35,4 @@ manager/copaw-agent/
 node_modules/
 package.json
 pnpm-lock.yaml
+.cursor/
