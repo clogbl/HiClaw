@@ -25,7 +25,7 @@ if [ -z "${TEAM_NAME:-}" ]; then
     exit 2
 fi
 
-marker_file="/root/hiclaw-fs/teams/${TEAM_NAME}/tasks/${task_id}/.processing"
+marker_file="/root/hiclaw-fs/shared/tasks/${task_id}/.processing"
 
 # No marker file = safe to proceed
 if [ ! -f "$marker_file" ]; then

@@ -19,7 +19,7 @@ teams/{team-name}/tasks/{task-id}/
 
 ```bash
 TASK_ID="st-01"
-TASK_DIR="/root/hiclaw-fs/teams/${TEAM_NAME}/tasks/${TASK_ID}"
+TASK_DIR="/root/hiclaw-fs/shared/tasks/${TASK_ID}"
 mkdir -p "${TASK_DIR}"
 ```
 
@@ -49,8 +49,8 @@ Write `spec.md` with:
 ### 2. Sync to MinIO
 
 ```bash
-mc cp ${TASK_DIR}/meta.json ${HICLAW_STORAGE_PREFIX}/teams/${TEAM_NAME}/tasks/${TASK_ID}/meta.json
-mc cp ${TASK_DIR}/spec.md ${HICLAW_STORAGE_PREFIX}/teams/${TEAM_NAME}/tasks/${TASK_ID}/spec.md
+mc cp ${TASK_DIR}/meta.json ${HICLAW_STORAGE_PREFIX}/teams/${TEAM_NAME}/shared/tasks/${TASK_ID}/meta.json
+mc cp ${TASK_DIR}/spec.md ${HICLAW_STORAGE_PREFIX}/teams/${TEAM_NAME}/shared/tasks/${TASK_ID}/spec.md
 ```
 
 ### 3. Update plan.md
@@ -71,7 +71,7 @@ bash ./skills/team-task-management/scripts/manage-team-state.sh \
 In Team Room:
 ```
 @alice:{domain} New task [st-01]: Design database schema
-Pull spec: teams/{team}/tasks/st-01/spec.md
+Pull spec: shared/tasks/st-01/spec.md
 Please file-sync, read the spec, create plan.md before starting. @mention me when complete.
 ```
 
@@ -80,7 +80,7 @@ Please file-sync, read the spec, create plan.md before starting. @mention me whe
 ### 1. Pull results
 
 ```bash
-mc mirror ${HICLAW_STORAGE_PREFIX}/teams/${TEAM_NAME}/tasks/${TASK_ID}/ ${TASK_DIR}/ --overwrite
+mc mirror ${HICLAW_STORAGE_PREFIX}/teams/${TEAM_NAME}/shared/tasks/${TASK_ID}/ ${TASK_DIR}/ --overwrite
 ```
 
 ### 2. Read result.md

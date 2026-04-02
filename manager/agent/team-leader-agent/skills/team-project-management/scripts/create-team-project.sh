@@ -59,7 +59,7 @@ NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 # ============================================================
 # Step 1: Create project directories and files
 # ============================================================
-PROJECT_DIR="/root/hiclaw-fs/teams/${TEAM_NAME}/projects/${PROJECT_ID}"
+PROJECT_DIR="/root/hiclaw-fs/shared/projects/${PROJECT_ID}"
 mkdir -p "${PROJECT_DIR}"
 
 WORKERS_JSON="[$(echo "${WORKERS_CSV}" | tr ',' '\n' | sed 's/.*/"&"/' | tr '\n' ',' | sed 's/,$//')]"
@@ -124,9 +124,9 @@ echo "  Project files created at ${PROJECT_DIR}"
 # ============================================================
 # Step 2: Sync to MinIO
 # ============================================================
-mc cp "${PROJECT_DIR}/meta.json" "${HICLAW_STORAGE_PREFIX}/teams/${TEAM_NAME}/projects/${PROJECT_ID}/meta.json" 2>&1 | tail -1
-mc cp "${PROJECT_DIR}/plan.md" "${HICLAW_STORAGE_PREFIX}/teams/${TEAM_NAME}/projects/${PROJECT_ID}/plan.md" 2>&1 | tail -1
-mc stat "${HICLAW_STORAGE_PREFIX}/teams/${TEAM_NAME}/projects/${PROJECT_ID}/meta.json" > /dev/null 2>&1 \
+mc cp "${PROJECT_DIR}/meta.json" "${HICLAW_STORAGE_PREFIX}/teams/${TEAM_NAME}/shared/projects/${PROJECT_ID}/meta.json" 2>&1 | tail -1
+mc cp "${PROJECT_DIR}/plan.md" "${HICLAW_STORAGE_PREFIX}/teams/${TEAM_NAME}/shared/projects/${PROJECT_ID}/plan.md" 2>&1 | tail -1
+mc stat "${HICLAW_STORAGE_PREFIX}/teams/${TEAM_NAME}/shared/projects/${PROJECT_ID}/meta.json" > /dev/null 2>&1 \
     || { echo "ERROR: meta.json not found in MinIO after sync" >&2; exit 1; }
 echo "  MinIO sync verified"
 

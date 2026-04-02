@@ -100,7 +100,7 @@ log_info "Team Room: ${TEAM_ROOM}"
 # ============================================================
 log_section "Verify Team Storage Initialization"
 
-for subdir in projects tasks shared; do
+for subdir in shared/tasks shared/projects shared/knowledge; do
     KEEP_STAT=$(exec_in_manager mc stat "${STORAGE_PREFIX}/teams/${TEST_TEAM}/${subdir}/.keep" 2>&1)
     if echo "${KEEP_STAT}" | grep -q "Name"; then
         log_pass "teams/${TEST_TEAM}/${subdir}/.keep exists in MinIO"

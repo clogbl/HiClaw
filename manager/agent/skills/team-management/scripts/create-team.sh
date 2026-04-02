@@ -230,7 +230,7 @@ fi
 # Step 2: Create Team Leader (with room IDs for AGENTS.md team-context)
 # ============================================================
 log "Step 2: Creating Team Leader (${LEADER_NAME})..."
-LEADER_ARGS=(--name "${LEADER_NAME}" --role team_leader --team "${TEAM_NAME}")
+LEADER_ARGS=(--name "${LEADER_NAME}" --role team_leader --team "${TEAM_NAME}" --runtime copaw)
 if [ -n "${LEADER_MODEL}" ]; then
     LEADER_ARGS+=(--model "${LEADER_MODEL}")
 fi
@@ -301,7 +301,7 @@ for i in "${!WORKER_NAMES[@]}"; do
     w_mcp="${WORKER_MCP_ARR[$i]:-}"
     log "  Creating worker: ${w_name}..."
 
-    W_ARGS=(--name "${w_name}" --role worker --team "${TEAM_NAME}" --team-leader "${LEADER_NAME}")
+    W_ARGS=(--name "${w_name}" --role worker --team "${TEAM_NAME}" --team-leader "${LEADER_NAME}" --runtime copaw)
     if [ -n "${w_model}" ]; then
         W_ARGS+=(--model "${w_model}")
     fi
@@ -440,12 +440,12 @@ fi
 # ============================================================
 log "Step 5: Initializing team storage space..."
 TEAM_STORAGE_DIR="/root/hiclaw-fs/teams/${TEAM_NAME}"
-mkdir -p "${TEAM_STORAGE_DIR}/projects"
-mkdir -p "${TEAM_STORAGE_DIR}/tasks"
-mkdir -p "${TEAM_STORAGE_DIR}/shared"
-touch "${TEAM_STORAGE_DIR}/projects/.keep"
-touch "${TEAM_STORAGE_DIR}/tasks/.keep"
-touch "${TEAM_STORAGE_DIR}/shared/.keep"
+mkdir -p "${TEAM_STORAGE_DIR}/shared/tasks"
+mkdir -p "${TEAM_STORAGE_DIR}/shared/projects"
+mkdir -p "${TEAM_STORAGE_DIR}/shared/knowledge"
+touch "${TEAM_STORAGE_DIR}/shared/tasks/.keep"
+touch "${TEAM_STORAGE_DIR}/shared/projects/.keep"
+touch "${TEAM_STORAGE_DIR}/shared/knowledge/.keep"
 ensure_mc_credentials 2>/dev/null || true
 mc mirror "${TEAM_STORAGE_DIR}/" "${HICLAW_STORAGE_PREFIX}/teams/${TEAM_NAME}/" --overwrite 2>&1 | tail -3
 log "  Team storage initialized at ${HICLAW_STORAGE_PREFIX}/teams/${TEAM_NAME}/"

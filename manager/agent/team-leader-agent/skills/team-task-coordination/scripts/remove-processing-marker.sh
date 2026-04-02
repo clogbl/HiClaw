@@ -22,7 +22,7 @@ if [ -z "${TEAM_NAME:-}" ]; then
     exit 2
 fi
 
-marker_file="/root/hiclaw-fs/teams/${TEAM_NAME}/tasks/${task_id}/.processing"
+marker_file="/root/hiclaw-fs/shared/tasks/${task_id}/.processing"
 
 if [ -f "$marker_file" ]; then
     rm -f "$marker_file"

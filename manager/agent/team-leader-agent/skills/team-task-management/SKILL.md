@@ -18,21 +18,22 @@ Follow these steps IN ORDER. Do NOT skip any step.
 
 ### Step 1: Write spec.md to MinIO
 
-Write the task spec directly to MinIO using `mc`. Workers pull from MinIO — they CANNOT see your local files.
+Write the task spec and push to MinIO. Workers pull from MinIO via file-sync.
 
 ```bash
-# Create spec locally
-mkdir -p /tmp/task-st-01
-cat > /tmp/task-st-01/spec.md << 'EOF'
+# Create spec locally in shared/tasks/
+mkdir -p /root/hiclaw-fs/shared/tasks/st-01
+cat > /root/hiclaw-fs/shared/tasks/st-01/spec.md << 'EOF'
 # Task: Design API endpoints
 (your task description here)
 EOF
 
-# Push to MinIO (team storage path)
-mc cp /tmp/task-st-01/spec.md hiclaw/hiclaw-storage/teams/<TEAM_NAME>/tasks/st-01/spec.md
+# Push to MinIO team shared
+mc cp /root/hiclaw-fs/shared/tasks/st-01/spec.md \
+  hiclaw/hiclaw-storage/teams/<TEAM_NAME>/shared/tasks/st-01/spec.md
 ```
 
-The path MUST be `hiclaw/hiclaw-storage/teams/<your team name>/tasks/<task-id>/spec.md`.
+The MinIO path MUST be `hiclaw/hiclaw-storage/teams/<your team name>/shared/tasks/<task-id>/spec.md`.
 
 ### Step 2: Send @mention to worker in Team Room
 
@@ -47,7 +48,7 @@ bash ./skills/team-task-management/scripts/send-team-message.sh \
   --message '@worker-name:domain New task [st-01]: Design API endpoints. Please file-sync and read teams/<team>/tasks/st-01/spec.md. @mention me when complete.'
 ```
 
-The message MUST tell the worker to file-sync and give the `teams/<team>/tasks/<id>/spec.md` path.
+The message MUST tell the worker to file-sync and give the `shared/tasks/<id>/spec.md` path (workers see it locally after sync).
 
 ### Step 3: Track in team-state.json
 

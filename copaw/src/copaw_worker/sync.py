@@ -183,26 +183,25 @@ class FileSync:
             logger.warning("mirror_all: mc mirror failed: %s", exc.stderr)
             raise
 
-        # Also mirror shared/ from bucket root
-        shared_remote = f"{_MC_ALIAS}/{self.bucket}/shared/"
+        # Mirror shared/ — team members use teams/{team}/shared/, others use global shared/
+        shared_remote = self._get_shared_remote()
         shared_local = str(self.local_dir / "shared") + "/"
         try:
             _mc("mirror", shared_remote, shared_local, "--overwrite", check=True)
-            logger.info("mirror_all: shared/ mirror completed")
+            logger.info("mirror_all: shared/ mirror completed from %s", shared_remote)
         except subprocess.CalledProcessError as exc:
             logger.warning("mirror_all: shared/ mirror failed (non-fatal): %s", exc.stderr)
 
-        # Also mirror teams/{team_id}/ if worker belongs to a team
-        team_id = self._get_team_id()
-        if team_id:
-            team_remote = f"{_MC_ALIAS}/{self.bucket}/teams/{team_id}/"
-            team_local = str(self.local_dir / "teams" / team_id) + "/"
-            os.makedirs(team_local, exist_ok=True)
+        # Team Leader also gets global shared/ as global-shared/ (read-only, for Manager tasks)
+        if self._is_team_leader():
+            global_shared_remote = f"{_MC_ALIAS}/{self.bucket}/shared/"
+            global_shared_local = str(self.local_dir / "global-shared") + "/"
+            os.makedirs(global_shared_local, exist_ok=True)
             try:
-                _mc("mirror", team_remote, team_local, "--overwrite", check=True)
-                logger.info("mirror_all: teams/%s/ mirror completed", team_id)
+                _mc("mirror", global_shared_remote, global_shared_local, "--overwrite", check=True)
+                logger.info("mirror_all: global-shared/ mirror completed")
             except subprocess.CalledProcessError as exc:
-                logger.warning("mirror_all: teams/%s/ mirror failed (non-fatal): %s", team_id, exc.stderr)
+                logger.warning("mirror_all: global-shared/ mirror failed (non-fatal): %s", exc.stderr)
 
 
     # ------------------------------------------------------------------
@@ -210,12 +209,7 @@ class FileSync:
     # ------------------------------------------------------------------
 
     def _get_team_id(self) -> Optional[str]:
-        """Read team name from AGENTS.md team-context section.
-
-        Parses the '- **Team**: {name}' line from the hiclaw-team-context block.
-        Falls back to team_id in openclaw.json for backward compatibility.
-        """
-        # Try AGENTS.md first (works for both OpenClaw and CoPaw)
+        """Read team name from AGENTS.md team-context section."""
         agents_path = self.local_dir / "AGENTS.md"
         if agents_path.exists():
             try:
@@ -226,7 +220,6 @@ class FileSync:
                     return m.group(1)
             except Exception:
                 pass
-        # Fallback: openclaw.json (CoPaw only, if team_id was injected)
         config_path = self.local_dir / "openclaw.json"
         if config_path.exists():
             try:
@@ -235,6 +228,28 @@ class FileSync:
             except Exception:
                 pass
         return None
+
+    def _is_team_leader(self) -> bool:
+        """Check if this worker is a team leader (has 'Upstream coordinator' in team-context)."""
+        agents_path = self.local_dir / "AGENTS.md"
+        if agents_path.exists():
+            try:
+                content = agents_path.read_text()
+                return "Upstream coordinator" in content
+            except Exception:
+                pass
+        return False
+
+    def _get_shared_remote(self) -> str:
+        """Return the MinIO remote path for shared/ directory.
+
+        Team members sync from teams/{team}/shared/ instead of global shared/.
+        Non-team workers sync from global shared/.
+        """
+        team_id = self._get_team_id()
+        if team_id:
+            return f"{_MC_ALIAS}/{self.bucket}/teams/{team_id}/shared/"
+        return f"{_MC_ALIAS}/{self.bucket}/shared/"
 
     def get_config(self) -> dict[str, Any]:
         """Pull openclaw.json and return parsed dict."""
@@ -328,10 +343,8 @@ class FileSync:
             except Exception as exc:
                 logger.warning("Failed to mirror skill %s: %s", skill_name, exc)
 
-        # Manager-managed: shared/
-        # Mirror the shared directory from MinIO bucket root to local_dir/shared/
-        # (shared/ lives at bucket root, not under agents/{worker_name}/)
-        shared_remote = f"{_MC_ALIAS}/{self.bucket}/shared/"
+        # Mirror shared/ — team members use teams/{team}/shared/, others use global shared/
+        shared_remote = self._get_shared_remote()
         shared_local = self.local_dir / "shared"
         shared_local.mkdir(parents=True, exist_ok=True)
         try:
@@ -349,28 +362,23 @@ class FileSync:
         except Exception as exc:
             logger.warning("Failed to mirror shared/: %s", exc)
 
-        # Team storage: teams/{team_id}/
-        # If this worker belongs to a team (team_id in openclaw.json),
-        # also mirror the team's isolated storage space.
-        team_id = self._get_team_id()
-        if team_id:
-            team_remote = f"{_MC_ALIAS}/{self.bucket}/teams/{team_id}/"
-            team_local = self.local_dir / "teams" / team_id
-            team_local.mkdir(parents=True, exist_ok=True)
+        # Team Leader also syncs global shared/ to global-shared/
+        if self._is_team_leader():
+            global_shared_remote = f"{_MC_ALIAS}/{self.bucket}/shared/"
+            global_shared_local = self.local_dir / "global-shared"
+            global_shared_local.mkdir(parents=True, exist_ok=True)
             try:
                 result = _mc(
                     "mirror",
-                    team_remote,
-                    str(team_local) + "/",
+                    global_shared_remote,
+                    str(global_shared_local) + "/",
                     "--overwrite",
                     check=False,
                 )
                 if result.returncode == 0:
-                    changed.append(f"teams/{team_id}/")
-                else:
-                    logger.warning("mc mirror failed for teams/%s/: %s", team_id, result.stderr)
+                    changed.append("global-shared/")
             except Exception as exc:
-                logger.warning("Failed to mirror teams/%s/: %s", team_id, exc)
+                logger.warning("Failed to mirror global-shared/: %s", exc)
 
         # Clean up local skill dirs removed from MinIO
         local_skills_dir = self.local_dir / "skills"

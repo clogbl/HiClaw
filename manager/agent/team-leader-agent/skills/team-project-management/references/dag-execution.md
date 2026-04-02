@@ -9,7 +9,7 @@ After creating a project and filling in plan.md with the DAG task plan, follow t
 ```
 1. resolve-dag.sh --action ready → get unblocked pending tasks
 2. For each ready task:
-   a. Create task directory: teams/{team}/tasks/{task-id}/
+   a. Create task directory: teams/{team}/shared/tasks/{task-id}/
    b. Write meta.json + spec.md
    c. Push to MinIO
    d. Update plan.md: [ ] → [~]
@@ -33,12 +33,12 @@ After creating a project and filling in plan.md with the DAG task plan, follow t
 ```bash
 # Get ready tasks
 READY=$(bash ./skills/team-project-management/scripts/resolve-dag.sh \
-  --plan /root/hiclaw-fs/teams/{team}/projects/{project-id}/plan.md \
+  --plan /root/hiclaw-fs/shared/projects/{project-id}/plan.md \
   --action ready)
 
 # For each ready task, create task files
 TASK_ID="st-01"
-TASK_DIR="/root/hiclaw-fs/teams/{team}/tasks/${TASK_ID}"
+TASK_DIR="/root/hiclaw-fs/shared/tasks/${TASK_ID}"
 mkdir -p "${TASK_DIR}"
 ```
 
@@ -59,8 +59,8 @@ Write `spec.md` with: task title, project context, deliverables, constraints, an
 
 Push to MinIO:
 ```bash
-mc cp ${TASK_DIR}/meta.json ${HICLAW_STORAGE_PREFIX}/teams/{team}/tasks/${TASK_ID}/meta.json
-mc cp ${TASK_DIR}/spec.md ${HICLAW_STORAGE_PREFIX}/teams/{team}/tasks/${TASK_ID}/spec.md
+mc cp ${TASK_DIR}/meta.json ${HICLAW_STORAGE_PREFIX}/teams/{team}/shared/tasks/${TASK_ID}/meta.json
+mc cp ${TASK_DIR}/spec.md ${HICLAW_STORAGE_PREFIX}/teams/{team}/shared/tasks/${TASK_ID}/spec.md
 ```
 
 Update plan.md marker from `[ ]` to `[~]`. Sync plan.md to MinIO.
@@ -68,7 +68,7 @@ Update plan.md marker from `[ ]` to `[~]`. Sync plan.md to MinIO.
 @mention worker in Team Room:
 ```
 @alice:{domain} New task [st-01]: Design database schema
-Pull spec: teams/{team}/tasks/st-01/spec.md
+Pull spec: shared/tasks/st-01/spec.md
 @mention me when complete.
 ```
 
@@ -78,7 +78,7 @@ When worker @mentions you with completion:
 
 1. Pull from MinIO:
 ```bash
-mc mirror ${HICLAW_STORAGE_PREFIX}/teams/{team}/tasks/${TASK_ID}/ ${TASK_DIR}/ --overwrite
+mc mirror ${HICLAW_STORAGE_PREFIX}/teams/{team}/shared/tasks/${TASK_ID}/ ${TASK_DIR}/ --overwrite
 ```
 
 2. Read `result.md` for outcome status.
@@ -95,7 +95,7 @@ mc mirror ${HICLAW_STORAGE_PREFIX}/teams/{team}/tasks/${TASK_ID}/ ${TASK_DIR}/ -
 4. After marking `[x]`, immediately run:
 ```bash
 bash ./skills/team-project-management/scripts/resolve-dag.sh \
-  --plan /root/hiclaw-fs/teams/{team}/projects/{project-id}/plan.md \
+  --plan /root/hiclaw-fs/shared/projects/{project-id}/plan.md \
   --action ready
 ```
 

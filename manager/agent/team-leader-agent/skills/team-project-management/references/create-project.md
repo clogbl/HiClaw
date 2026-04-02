@@ -38,7 +38,7 @@ bash ./skills/team-project-management/scripts/create-team-project.sh \
 ```
 
 The script will:
-1. Create `teams/{team}/projects/{project-id}/meta.json` + `plan.md`
+1. Create `teams/{team}/shared/projects/{project-id}/meta.json` + `plan.md`
 2. Sync to MinIO
 3. Register in `team-state.json`
 
@@ -50,7 +50,7 @@ Edit the generated `plan.md` to add the DAG task plan. See `references/plan-form
 
 ```bash
 bash ./skills/team-project-management/scripts/resolve-dag.sh \
-  --plan /root/hiclaw-fs/teams/{team}/projects/{project-id}/plan.md \
+  --plan /root/hiclaw-fs/shared/projects/{project-id}/plan.md \
   --action validate
 ```
 

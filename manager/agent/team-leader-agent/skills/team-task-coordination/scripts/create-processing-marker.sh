@@ -24,7 +24,7 @@ if [ -z "${TEAM_NAME:-}" ]; then
     exit 2
 fi
 
-task_dir="/root/hiclaw-fs/teams/${TEAM_NAME}/tasks/${task_id}"
+task_dir="/root/hiclaw-fs/shared/tasks/${task_id}"
 marker_file="$task_dir/.processing"
 
 # Ensure task directory exists
