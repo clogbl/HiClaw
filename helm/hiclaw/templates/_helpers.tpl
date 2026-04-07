@@ -1,0 +1,158 @@
+{{/*
+Chart name.
+*/}}
+{{- define "hiclaw.name" -}}
+{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Fully qualified app name.
+*/}}
+{{- define "hiclaw.fullname" -}}
+{{- if .Values.fullnameOverride }}
+{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- $name := default .Chart.Name .Values.nameOverride }}
+{{- if contains $name .Release.Name }}
+{{- .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Chart label.
+*/}}
+{{- define "hiclaw.chart" -}}
+{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Namespace for all resources.
+*/}}
+{{- define "hiclaw.namespace" -}}
+{{- default .Release.Namespace .Values.global.namespace }}
+{{- end }}
+
+{{/*
+Common labels.
+*/}}
+{{- define "hiclaw.commonLabels" -}}
+helm.sh/chart: {{ include "hiclaw.chart" . }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+{{- end }}
+
+{{/*
+Image tag: defaults to global.imageTag.
+Usage: include "hiclaw.imageTag" (dict "tag" .Values.foo.image.tag "global" .Values.global)
+*/}}
+{{- define "hiclaw.imageTag" -}}
+{{- default .global.imageTag .tag }}
+{{- end }}
+
+{{/*
+Shared runtime Secret name.
+*/}}
+{{- define "hiclaw.secretName" -}}
+{{- printf "%s-runtime-env" (include "hiclaw.fullname" .) }}
+{{- end }}
+
+{{/* ── Component naming helpers ────────────────────────────────────────── */}}
+
+{{- define "hiclaw.manager.fullname" -}}
+{{- printf "%s-manager" (include "hiclaw.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "hiclaw.orchestrator.fullname" -}}
+{{- printf "%s-orchestrator" (include "hiclaw.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "hiclaw.tuwunel.fullname" -}}
+{{- printf "%s-tuwunel" (include "hiclaw.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "hiclaw.minio.fullname" -}}
+{{- printf "%s-minio" (include "hiclaw.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "hiclaw.elementWeb.fullname" -}}
+{{- printf "%s-element-web" (include "hiclaw.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/* ── Component label helpers ─────────────────────────────────────────── */}}
+
+{{- define "hiclaw.component.labels" -}}
+{{ include "hiclaw.commonLabels" .root }}
+{{ include "hiclaw.component.selectorLabels" . }}
+{{- end }}
+
+{{- define "hiclaw.component.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "hiclaw.name" .root }}
+app.kubernetes.io/instance: {{ .root.Release.Name }}
+app.kubernetes.io/component: {{ .component }}
+{{- end }}
+
+{{/* ── Service URL helpers ─────────────────────────────────────────────── */}}
+
+{{- define "hiclaw.tuwunel.clusterFQDN" -}}
+{{- printf "%s.%s.svc.cluster.local" (include "hiclaw.tuwunel.fullname" .) (include "hiclaw.namespace" .) }}
+{{- end }}
+
+{{- define "hiclaw.tuwunel.internalURL" -}}
+{{- printf "http://%s:%d" (include "hiclaw.tuwunel.clusterFQDN" .) (.Values.matrixServer.tuwunel.service.port | int) }}
+{{- end }}
+
+{{- define "hiclaw.tuwunel.serverName" -}}
+{{- printf "%s:%d" (include "hiclaw.tuwunel.clusterFQDN" .) (.Values.matrixServer.tuwunel.service.port | int) }}
+{{- end }}
+
+{{- define "hiclaw.minio.internalURL" -}}
+{{- printf "http://%s.%s.svc.cluster.local:%d" (include "hiclaw.minio.fullname" .) (include "hiclaw.namespace" .) (.Values.objectStorage.minio.service.apiPort | int) }}
+{{- end }}
+
+{{- define "hiclaw.orchestrator.internalURL" -}}
+{{- printf "http://%s.%s.svc.cluster.local:%d" (include "hiclaw.orchestrator.fullname" .) (include "hiclaw.namespace" .) (.Values.orchestrator.service.port | int) }}
+{{- end }}
+
+{{- define "hiclaw.higress.gatewayURL" -}}
+{{- $port := 80 }}
+{{- if and .Values.aiGateway.higress (index .Values.aiGateway.higress "higress-core") }}
+{{- $gw := index (index .Values.aiGateway.higress "higress-core") "gateway" | default dict }}
+{{- $port = $gw.httpPort | default 80 }}
+{{- end }}
+{{- printf "http://higress-gateway.%s.svc.cluster.local:%d" (include "hiclaw.namespace" .) ($port | int) }}
+{{- end }}
+
+{{/* ── ServiceAccount helpers ──────────────────────────────────────────── */}}
+
+{{- define "hiclaw.orchestrator.serviceAccountName" -}}
+{{- if .Values.orchestrator.serviceAccount.create }}
+{{- default (include "hiclaw.orchestrator.fullname" .) .Values.orchestrator.serviceAccount.name }}
+{{- else }}
+{{- default "default" .Values.orchestrator.serviceAccount.name }}
+{{- end }}
+{{- end }}
+
+{{- define "hiclaw.manager.serviceAccountName" -}}
+{{- if .Values.manager.serviceAccount.create }}
+{{- default (include "hiclaw.manager.fullname" .) .Values.manager.serviceAccount.name }}
+{{- else }}
+{{- default "default" .Values.manager.serviceAccount.name }}
+{{- end }}
+{{- end }}
+
+{{/* ── Worker image helpers ────────────────────────────────────────────── */}}
+
+{{- define "hiclaw.worker.openclawImage" -}}
+{{- $tag := default .Values.global.imageTag .Values.worker.defaultImage.openclaw.tag }}
+{{- printf "%s:%s" .Values.worker.defaultImage.openclaw.repository $tag }}
+{{- end }}
+
+{{- define "hiclaw.worker.copawImage" -}}
+{{- $tag := default .Values.global.imageTag .Values.worker.defaultImage.copaw.tag }}
+{{- printf "%s:%s" .Values.worker.defaultImage.copaw.repository $tag }}
+{{- end }}

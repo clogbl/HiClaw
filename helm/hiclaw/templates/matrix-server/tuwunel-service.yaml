@@ -1,0 +1,19 @@
+{{- if eq .Values.matrixServer.type "tuwunel" }}
+{{- $comp := dict "root" . "component" "tuwunel" }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "hiclaw.tuwunel.fullname" . }}
+  namespace: {{ include "hiclaw.namespace" . }}
+  labels:
+    {{- include "hiclaw.component.labels" $comp | nindent 4 }}
+spec:
+  type: {{ .Values.matrixServer.tuwunel.service.type }}
+  selector:
+    {{- include "hiclaw.component.selectorLabels" $comp | nindent 4 }}
+  ports:
+    - name: matrix
+      port: {{ .Values.matrixServer.tuwunel.service.port }}
+      targetPort: matrix
+      protocol: TCP
+{{- end }}

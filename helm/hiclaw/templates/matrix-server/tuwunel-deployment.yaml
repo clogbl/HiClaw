@@ -1,0 +1,81 @@
+{{- if eq .Values.matrixServer.type "tuwunel" }}
+{{- $comp := dict "root" . "component" "tuwunel" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hiclaw.tuwunel.fullname" . }}
+  namespace: {{ include "hiclaw.namespace" . }}
+  labels:
+    {{- include "hiclaw.component.labels" $comp | nindent 4 }}
+spec:
+  replicas: {{ .Values.matrixServer.tuwunel.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "hiclaw.component.selectorLabels" $comp | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hiclaw.component.selectorLabels" $comp | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: tuwunel
+          image: "{{ .Values.matrixServer.tuwunel.image.repository }}:{{ .Values.matrixServer.tuwunel.image.tag }}"
+          imagePullPolicy: {{ .Values.matrixServer.tuwunel.image.pullPolicy }}
+          ports:
+            - name: matrix
+              containerPort: 6167
+          env:
+            - name: CONDUWUIT_DATABASE_PATH
+              value: {{ .Values.matrixServer.tuwunel.persistence.mountPath | quote }}
+            - name: CONDUWUIT_ADDRESS
+              value: "0.0.0.0"
+            - name: CONDUWUIT_PORT
+              value: "6167"
+            - name: CONDUWUIT_ALLOW_REGISTRATION
+              value: "true"
+            - name: CONDUWUIT_ALLOW_LEGACY_MEDIA
+              value: "true"
+            - name: CONDUWUIT_ALLOW_UNSTABLE_ROOM_VERSIONS
+              value: "true"
+            - name: CONDUWUIT_DB_POOL_WORKERS_LIMIT
+              value: "32"
+            - name: CONDUWUIT_SERVER_NAME
+              value: {{ include "hiclaw.tuwunel.serverName" . | quote }}
+            - name: CONDUWUIT_REGISTRATION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hiclaw.secretName" . }}
+                  key: HICLAW_REGISTRATION_TOKEN
+            {{- range $k, $v := .Values.matrixServer.tuwunel.extraEnv }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.matrixServer.tuwunel.resources | nindent 12 }}
+          readinessProbe:
+            tcpSocket:
+              port: matrix
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: matrix
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          volumeMounts:
+            - name: data
+              mountPath: {{ .Values.matrixServer.tuwunel.persistence.mountPath | quote }}
+      volumes:
+        {{- if .Values.matrixServer.tuwunel.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "hiclaw.tuwunel.fullname" . }}-data
+        {{- else }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+{{- end }}

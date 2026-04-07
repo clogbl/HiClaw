@@ -1,0 +1,79 @@
+# =============================================================================
+# HiClaw — values overlay for local kind cluster
+# =============================================================================
+# Usage:
+#   helm install hiclaw helm/hiclaw/ \
+#     -n hiclaw --create-namespace \
+#     -f helm/hiclaw/values-kind.yaml \
+#     --set credentials.registrationToken=<token> \
+#     --set credentials.adminPassword=<password> \
+#     --set credentials.llmApiKey=<api-key>
+# =============================================================================
+
+# kind uses local-path-provisioner by default; no StorageClass needed.
+matrixServer:
+  tuwunel:
+    persistence:
+      storageClassName: ""
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 250m
+        memory: 256Mi
+
+objectStorage:
+  minio:
+    persistence:
+      storageClassName: ""
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 250m
+        memory: 512Mi
+
+# Reduced resource requests for local dev
+orchestrator:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+manager:
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+elementWeb:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+# Higress: expose gateway via NodePort for kind port mapping
+higress:
+  global:
+    local: true
+  higress-core:
+    gateway:
+      replicas: 1
+      httpPort: 80
+      httpsPort: 443
+      service:
+        type: NodePort
+        nodePorts:
+          http: 30080
+          https: 30443

@@ -1,0 +1,32 @@
+========================================================================
+HiClaw — {{ .Chart.Name }} / {{ .Release.Name }}
+========================================================================
+
+Namespace: {{ include "hiclaw.namespace" . }}
+
+1. Wait for all components:
+
+   kubectl wait --for=condition=available deployment --all \
+     -n {{ include "hiclaw.namespace" . }} --timeout=300s
+
+2. Access Element Web (IM UI):
+
+   kubectl port-forward svc/{{ include "hiclaw.elementWeb.fullname" . }} 8080:{{ .Values.elementWeb.service.port }} \
+     -n {{ include "hiclaw.namespace" . }}
+
+   Then open: http://localhost:8080
+
+3. Login with admin credentials:
+
+   Username: {{ .Values.credentials.adminUser }}
+   Password: (the password you set in credentials.adminPassword)
+
+4. Manager Agent connects to:
+
+   Matrix:       {{ include "hiclaw.tuwunel.internalURL" . }}
+   Orchestrator: {{ include "hiclaw.orchestrator.internalURL" . }}
+   AI Gateway:   {{ include "hiclaw.higress.gatewayURL" . }}
+
+5. View logs:
+
+   kubectl logs -f deployment/{{ include "hiclaw.manager.fullname" . }} -n {{ include "hiclaw.namespace" . }}

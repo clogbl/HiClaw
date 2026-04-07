@@ -1,0 +1,27 @@
+apiVersion: v2
+name: hiclaw
+description: HiClaw - AI Agent Teams with Matrix-based collaboration and human-in-the-loop oversight
+type: application
+version: 0.1.0
+appVersion: "1.0.9"
+
+keywords:
+  - ai-agent
+  - multi-agent
+  - matrix
+  - collaboration
+  - llm
+
+home: https://github.com/higress-group/hiclaw
+sources:
+  - https://github.com/higress-group/hiclaw
+
+maintainers:
+  - name: HiClaw Team
+    url: https://github.com/higress-group/hiclaw
+
+dependencies:
+  - name: higress
+    version: ">=2.0.0"
+    repository: "https://higress.io/helm-charts"
+    condition: aiGateway.higress.enabled

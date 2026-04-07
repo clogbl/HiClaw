@@ -1,0 +1,202 @@
+# =============================================================================
+# HiClaw Helm Chart — values.yaml
+# =============================================================================
+# Default configuration for local Kubernetes deployment (kind / minikube).
+# Override with values-aliyun.yaml for Alibaba Cloud ACK/ACS deployments.
+# =============================================================================
+
+global:
+  namespace: ""  # defaults to .Release.Namespace
+  imageRegistry: higress-registry.cn-hangzhou.cr.aliyuncs.com/higress
+  imageTag: "v1.0.9"
+
+imagePullSecrets: []
+
+# ── Credentials (shared across all components) ────────────────────────────
+credentials:
+  registrationToken: ""       # Matrix registration token (required)
+  adminUser: "admin"
+  adminPassword: ""           # Matrix admin password (required)
+  llmApiKey: ""               # LLM API key (required)
+  llmProvider: "alibaba-cloud"
+  defaultModel: "qwen3.5-plus"
+  orchestratorApiKey: ""      # Orchestrator auth key (auto-generated if empty)
+  managerPassword: ""         # Manager Matrix password (auto-generated if empty)
+  managerGatewayKey: ""       # Manager Higress consumer key (auto-generated if empty)
+
+# ── Matrix Server ─────────────────────────────────────────────────────────
+# type: tuwunel | synapse (synapse support planned for Phase 2)
+matrixServer:
+  type: tuwunel
+  tuwunel:
+    image:
+      repository: higress-registry.cn-hangzhou.cr.aliyuncs.com/higress/tuwunel
+      tag: "20260216"
+      pullPolicy: IfNotPresent
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    service:
+      type: ClusterIP
+      port: 6167
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClassName: ""    # empty = default StorageClass
+      mountPath: /data/conduwuit
+    extraEnv: {}
+
+# ── Object Storage ────────────────────────────────────────────────────────
+# type: minio | external
+objectStorage:
+  type: minio
+  minio:
+    image:
+      repository: minio/minio
+      tag: latest
+      pullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+    service:
+      type: ClusterIP
+      apiPort: 9000
+      consolePort: 9001
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClassName: ""
+    auth:
+      rootUser: "minioadmin"
+      rootPassword: "minioadmin"
+    bucketName: "hiclaw"
+  external:
+    endpoint: ""
+    bucket: ""
+    accessKey: ""
+    secretKey: ""
+
+# ── AI Gateway ────────────────────────────────────────────────────────────
+# type: higress | external
+aiGateway:
+  type: higress
+  higress:
+    enabled: true             # controls Higress subchart deployment
+  external:
+    gatewayUrl: ""            # external gateway URL (e.g., Alibaba Cloud APIG)
+    consoleUrl: ""
+
+# ── Higress subchart values (passed directly to the higress dependency) ───
+# See https://higress.io/en/docs/latest/user/configurations/ for full options.
+higress:
+  global:
+    local: true               # kind / minikube: no cloud LoadBalancer
+  higress-core:
+    gateway:
+      replicas: 1
+      httpPort: 80
+      httpsPort: 443
+    controller:
+      replicas: 1
+
+# ── Orchestrator (Worker lifecycle management) ────────────────────────────
+orchestrator:
+  image:
+    repository: higress-registry.cn-hangzhou.cr.aliyuncs.com/higress/hiclaw-orchestrator
+    tag: ""                   # defaults to global.imageTag
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 2375
+    targetPort: 2375
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  workerBackend: "k8s"        # k8s | docker
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+  env: {}
+  timezone: "Asia/Shanghai"
+
+# ── Manager Agent ─────────────────────────────────────────────────────────
+manager:
+  enabled: true
+  image:
+    repository: higress-registry.cn-hangzhou.cr.aliyuncs.com/higress/hiclaw-manager
+    tag: ""                   # defaults to global.imageTag
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: "1"
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+  service:
+    type: ClusterIP
+    port: 18799
+    targetPort: 18799
+  healthCheck:
+    enabled: true
+    type: "tcp"
+    interval: 10
+    healthyThreshold: 2
+    unhealthyThreshold: 30
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+  env: {}
+
+# ── Element Web (IM UI, optional) ─────────────────────────────────────────
+elementWeb:
+  enabled: true
+  image:
+    repository: higress-registry.cn-hangzhou.cr.aliyuncs.com/higress/element-web
+    tag: "20260323"
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  service:
+    type: ClusterIP
+    port: 8080
+
+# ── Worker defaults ───────────────────────────────────────────────────────
+worker:
+  defaultImage:
+    openclaw:
+      repository: higress-registry.cn-hangzhou.cr.aliyuncs.com/higress/hiclaw-worker
+      tag: ""                 # defaults to global.imageTag
+    copaw:
+      repository: higress-registry.cn-hangzhou.cr.aliyuncs.com/higress/hiclaw-copaw-worker
+      tag: ""                 # defaults to global.imageTag
+  defaultRuntime: "openclaw"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
