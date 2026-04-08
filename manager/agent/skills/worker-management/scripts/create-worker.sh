@@ -280,8 +280,9 @@ if [ "${HICLAW_RUNTIME}" != "aliyun" ]; then
         TEAM_LIST_PREFIX=',
             "teams/'"${TEAM_NAME}"'", "teams/'"${TEAM_NAME}"'/*"'
         TEAM_RW_RESOURCE=',
-        "arn:aws:s3:::hiclaw-storage/teams/'"${TEAM_NAME}"'/*"'
+        "arn:aws:s3:::${HICLAW_STORAGE_BUCKET}/teams/'"${TEAM_NAME}"'/*"'
     fi
+    MINIO_BUCKET="${HICLAW_STORAGE_BUCKET}"
     cat > "${POLICY_FILE}" <<POLICY
 {
   "Version": "2012-10-17",
@@ -289,7 +290,7 @@ if [ "${HICLAW_RUNTIME}" != "aliyun" ]; then
     {
       "Effect": "Allow",
       "Action": ["s3:ListBucket"],
-      "Resource": ["arn:aws:s3:::hiclaw-storage"],
+      "Resource": ["arn:aws:s3:::${MINIO_BUCKET}"],
       "Condition": {
         "StringLike": {
           "s3:prefix": [
@@ -303,8 +304,8 @@ if [ "${HICLAW_RUNTIME}" != "aliyun" ]; then
       "Effect": "Allow",
       "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
       "Resource": [
-        "arn:aws:s3:::hiclaw-storage/agents/${WORKER_NAME}/*",
-        "arn:aws:s3:::hiclaw-storage/shared/*"${TEAM_RW_RESOURCE}
+        "arn:aws:s3:::${MINIO_BUCKET}/agents/${WORKER_NAME}/*",
+        "arn:aws:s3:::${MINIO_BUCKET}/shared/*"${TEAM_RW_RESOURCE}
       ]
     }
   ]
@@ -883,10 +884,12 @@ elif container_api_available; then
         --arg matrix_token "${WORKER_MATRIX_TOKEN}" \
         --arg ai_gw_url "${HICLAW_AI_GATEWAY_URL:-}" \
         --arg oss_bucket "${HICLAW_OSS_BUCKET:-}" \
+        --arg minio_bucket "${HICLAW_MINIO_BUCKET:-}" \
         --arg region "${HICLAW_REGION:-cn-hangzhou}" \
         --arg runtime "${WORKER_RUNTIME}" \
         --arg console_port "${CONSOLE_PORT:-}" \
         --arg skills_api_url "${SKILLS_API_URL:-}" \
+        --arg fs_endpoint "${HICLAW_FS_ENDPOINT:-}" \
         --arg fs_domain "${HICLAW_FS_DOMAIN:-fs-local.hiclaw.io}" \
         --arg fs_access_key "${WORKER_NAME}" \
         --arg fs_secret_key "${WORKER_MINIO_PASSWORD}" \
@@ -901,12 +904,13 @@ elif container_api_available; then
             "HICLAW_MATRIX_DOMAIN": $matrix_domain,
             "HICLAW_WORKER_MATRIX_TOKEN": $matrix_token,
             "HICLAW_AI_GATEWAY_URL": $ai_gw_url,
-            "HICLAW_FS_ENDPOINT": ("http://" + ($fs_domain | split(":")[0]) + ":8080"),
+            "HICLAW_FS_ENDPOINT": (if $fs_endpoint != "" then $fs_endpoint else ("http://" + ($fs_domain | split(":")[0]) + ":8080") end),
             "HICLAW_FS_ACCESS_KEY": $fs_access_key,
             "HICLAW_FS_SECRET_KEY": $fs_secret_key
         }
         | if $orchestrator_url != "" then . + { "HICLAW_ORCHESTRATOR_URL": $orchestrator_url } else . end
         | if $oss_bucket != "" then . + { "HICLAW_OSS_BUCKET": $oss_bucket, "HICLAW_REGION": $region } else . end
+        | if $minio_bucket != "" then . + { "HICLAW_MINIO_BUCKET": $minio_bucket } else . end
         | if $skills_api_url != "" then . + { "SKILLS_API_URL": $skills_api_url } else . end
         | if $console_port != "" then . + { "HICLAW_CONSOLE_PORT": $console_port } else . end
         | if $nacos_username != "" then . + { "HICLAW_NACOS_USERNAME": $nacos_username } else . end

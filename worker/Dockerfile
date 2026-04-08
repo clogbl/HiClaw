@@ -60,6 +60,11 @@ COPY --chmod=755 scripts/ /opt/hiclaw/scripts/
 RUN printf '#!/bin/bash\nexec "/root/hiclaw-fs/agents/${HICLAW_WORKER_NAME}/skills/file-sync/scripts/hiclaw-sync.sh" "$@"\n' \
     > /usr/local/bin/hiclaw-sync && chmod +x /usr/local/bin/hiclaw-sync
 
+# Workaround: lsof hangs in Kind (Docker-in-Docker) when scanning /proc.
+# OpenClaw Gateway uses lsof to check port availability before binding;
+# replace with a stub that always reports "port not in use" (exit 1).
+RUN rm -f /usr/bin/lsof && printf '#!/bin/sh\nexit 1\n' > /usr/bin/lsof && chmod +x /usr/bin/lsof
+
 # hiclaw-fs root (mirrors Manager's ~/hiclaw-fs/ layout)
 RUN mkdir -p /root/hiclaw-fs /root/.openclaw
 

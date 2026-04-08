@@ -29,6 +29,7 @@ spec:
       initContainers:
         - name: init-minio-bucket
           image: "minio/mc:latest"
+          imagePullPolicy: IfNotPresent
           command:
             - sh
             - -c
@@ -56,6 +57,9 @@ spec:
             - secretRef:
                 name: {{ include "hiclaw.secretName" . }}
           env:
+            {{- /* Node.js heap size for OpenClaw gateway */}}
+            - name: NODE_OPTIONS
+              value: "--max-old-space-size=2048"
             {{- /* Core runtime mode */}}
             - name: HICLAW_RUNTIME
               value: "k8s"
@@ -73,6 +77,8 @@ spec:
               value: {{ include "hiclaw.higress.gatewayURL" . | quote }}
             - name: HICLAW_HIGRESS_CONSOLE_URL
               value: {{ include "hiclaw.higress.consoleURL" . | quote }}
+            - name: HICLAW_ELEMENT_WEB_URL
+              value: {{ printf "http://%s-element-web.%s.svc.cluster.local:%d" (include "hiclaw.fullname" .) (include "hiclaw.namespace" .) (.Values.elementWeb.service.port | int) | quote }}
             {{- else if .Values.aiGateway.external.gatewayUrl }}
             - name: HICLAW_AI_GATEWAY_URL
               value: {{ .Values.aiGateway.external.gatewayUrl | quote }}
@@ -93,6 +99,8 @@ spec:
                   key: MINIO_ROOT_PASSWORD
             - name: HICLAW_MINIO_BUCKET
               value: {{ .Values.objectStorage.minio.bucketName | quote }}
+            - name: HICLAW_FS_ENDPOINT
+              value: {{ include "hiclaw.minio.internalURL" . | quote }}
             {{- end }}
             {{- /* Worker runtime defaults */}}
             - name: HICLAW_DEFAULT_WORKER_RUNTIME

@@ -21,6 +21,10 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      volumes:
+        - name: element-config
+          configMap:
+            name: {{ include "hiclaw.elementWeb.fullname" . }}-config
       containers:
         - name: element-web
           image: "{{ .Values.elementWeb.image.repository }}:{{ .Values.elementWeb.image.tag }}"
@@ -29,15 +33,13 @@ spec:
             - name: http
               containerPort: 8080
           env:
-            {{- /*
-            MATRIX_SERVER_URL is the URL browsers use to connect to the Matrix server.
-            In K8s local mode with port-forward, the browser connects through the
-            AI Gateway (Higress), which proxies to Tuwunel.
-            For now, use the Tuwunel internal URL; users override via port-forward
-            or Ingress in production.
-            */}}
-            - name: MATRIX_SERVER_URL
-              value: {{ .Values.elementWeb.matrixServerUrl | default (include "hiclaw.tuwunel.internalURL" .) | quote }}
+            - name: ELEMENT_WEB_PORT
+              value: "8080"
+          volumeMounts:
+            - name: element-config
+              mountPath: /usr/share/nginx/html/config.json
+              subPath: config.json
+              readOnly: true
           resources:
             {{- toYaml .Values.elementWeb.resources | nindent 12 }}
           readinessProbe:

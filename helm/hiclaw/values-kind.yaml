@@ -49,23 +49,22 @@ manager:
   resources:
     requests:
       cpu: 250m
-      memory: 512Mi
-    limits:
-      cpu: "1"
       memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
 
 elementWeb:
   matrixServerUrl: "http://localhost:18080"
   service:
-    type: NodePort
-    nodePort: 30088
+    type: ClusterIP
   resources:
     requests:
-      cpu: 50m
-      memory: 64Mi
-    limits:
       cpu: 100m
       memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
 
 # Higress: expose gateway via NodePort for kind port mapping
 higress:
@@ -78,6 +77,14 @@ higress:
       httpsPort: 443
       service:
         type: NodePort
-        nodePorts:
-          http: 30080
-          https: 30443
+        ports:
+          - name: http2
+            port: 80
+            protocol: TCP
+            targetPort: 80
+            nodePort: 30080
+          - name: https
+            port: 443
+            protocol: TCP
+            targetPort: 443
+            nodePort: 30443

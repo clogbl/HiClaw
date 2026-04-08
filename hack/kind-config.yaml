@@ -2,8 +2,6 @@
 #
 # Port mappings expose services on the host:
 #   - 18080: Higress Gateway (AI Gateway / Matrix proxy / Element Web)
-#   - 18088: Element Web direct access
-#   - 30080: Higress Gateway NodePort
 #
 # Usage:
 #   kind create cluster --name hiclaw --config hack/kind-config.yaml
@@ -15,8 +13,4 @@ nodes:
       # Higress Gateway (NodePort 30080 -> host 18080)
       - containerPort: 30080
         hostPort: 18080
-        protocol: TCP
-      # Element Web direct access (NodePort 30088 -> host 18088)
-      - containerPort: 30088
-        hostPort: 18088
         protocol: TCP

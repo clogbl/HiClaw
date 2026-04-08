@@ -225,7 +225,7 @@ curl -sf -X POST ${HICLAW_MATRIX_SERVER}/_matrix/client/v3/register \
 
 # Get Manager Agent's Matrix access token
 log "Obtaining Manager Matrix access token..."
-_LOGIN_RESPONSE=$(curl -sf -X POST ${HICLAW_MATRIX_SERVER}/_matrix/client/v3/login \
+_LOGIN_RESPONSE=$(curl -s -X POST ${HICLAW_MATRIX_SERVER}/_matrix/client/v3/login \
     -H 'Content-Type: application/json' \
     -d '{
         "type": "m.login.password",
@@ -349,11 +349,27 @@ if [ -n "${_HIGRESS_CONSOLE_URL}" ]; then
             fi
         }
 
-        # 1. Manager Consumer (key-auth)
+        # 1. Service Sources (DNS type → K8s Service FQDN)
+        # Extract host:port from URLs for Higress service source registration
+        _TUWUNEL_HOST=$(echo "${HICLAW_MATRIX_SERVER}" | sed 's|^http[s]*://||')
+        _TUWUNEL_DOMAIN=$(echo "${_TUWUNEL_HOST}" | cut -d: -f1)
+        _TUWUNEL_PORT=$(echo "${_TUWUNEL_HOST}" | cut -d: -f2)
+        _k8s_higress_api POST /v1/service-sources "Registering Tuwunel service source" \
+            '{"type":"dns","name":"tuwunel","domain":"'"${_TUWUNEL_DOMAIN}"'","port":'"${_TUWUNEL_PORT}"'}'
+
+        if [ -n "${HICLAW_ELEMENT_WEB_URL:-}" ]; then
+            _ELEMENT_HOST=$(echo "${HICLAW_ELEMENT_WEB_URL}" | sed 's|^http[s]*://||')
+            _ELEMENT_DOMAIN=$(echo "${_ELEMENT_HOST}" | cut -d: -f1)
+            _ELEMENT_PORT=$(echo "${_ELEMENT_HOST}" | cut -d: -f2)
+            _k8s_higress_api POST /v1/service-sources "Registering Element Web service source" \
+                '{"type":"dns","name":"element-web","domain":"'"${_ELEMENT_DOMAIN}"'","port":'"${_ELEMENT_PORT}"'}'
+        fi
+
+        # 2. Manager Consumer (key-auth)
         _k8s_higress_api POST /v1/consumers "Creating Manager consumer" \
             '{"name":"manager","credentials":[{"type":"key-auth","source":"BEARER","values":["'"${HICLAW_MANAGER_GATEWAY_KEY}"'"]}]}'
 
-        # 2. LLM Provider
+        # 3. LLM Provider
         _LLM_PROVIDER="${HICLAW_LLM_PROVIDER:-qwen}"
         _LLM_API_URL="${HICLAW_LLM_API_URL:-}"
         if [ -z "${_LLM_API_URL}" ]; then
@@ -361,6 +377,7 @@ if [ -n "${_HIGRESS_CONSOLE_URL}" ]; then
                 qwen) _LLM_API_URL="https://dashscope.aliyuncs.com/compatible-mode/v1" ;;
             esac
         fi
+        # 4. LLM Provider type-specific config
         case "${_LLM_PROVIDER}" in
             qwen)
                 _k8s_higress_api POST /v1/ai/providers "Creating LLM provider (qwen)" \
@@ -372,9 +389,22 @@ if [ -n "${_HIGRESS_CONSOLE_URL}" ]; then
                 ;;
         esac
 
-        # 3. AI Route (bind provider + consumer auth)
+        # 5. AI Route (bind provider + consumer auth, /v1 prefix to avoid clash with Element Web catch-all)
         _k8s_higress_api POST /v1/ai/routes "Creating AI Gateway route" \
-            '{"name":"default-ai-route","domains":[],"pathPredicate":{"matchType":"PRE","matchValue":"/","caseSensitive":false},"upstreams":[{"provider":"'"${_LLM_PROVIDER}"'","weight":100,"modelMapping":{}}],"authConfig":{"enabled":true,"allowedCredentialTypes":["key-auth"],"allowedConsumers":["manager"]}}'
+            '{"name":"default-ai-route","domains":[],"pathPredicate":{"matchType":"PRE","matchValue":"/v1","caseSensitive":false},"upstreams":[{"provider":"'"${_LLM_PROVIDER}"'","weight":100,"modelMapping":{}}],"authConfig":{"enabled":true,"allowedCredentialTypes":["key-auth"],"allowedConsumers":["manager"]}}'
+
+        # 6. Matrix Homeserver Route (/_matrix/* → Tuwunel, no auth)
+        _k8s_higress_api POST /v1/routes "Creating Matrix Homeserver route" \
+            '{"name":"matrix-homeserver","domains":[],"path":{"matchType":"PRE","matchValue":"/_matrix"},"services":[{"name":"tuwunel.dns","port":'"${_TUWUNEL_PORT}"',"weight":100}]}'
+
+        # 7. Element Web Route (/ catch-all → Element Web, no auth)
+        if [ -n "${HICLAW_ELEMENT_WEB_URL:-}" ]; then
+            _k8s_higress_api POST /v1/routes "Creating Element Web route" \
+                '{"name":"element-web","domains":[],"path":{"matchType":"PRE","matchValue":"/"},"services":[{"name":"element-web.dns","port":'"${_ELEMENT_PORT}"',"weight":100}]}'
+        fi
+
+        # 8. Remove Higress default landing page (Exact match on / takes precedence over Element Web catch-all)
+        _k8s_higress_api DELETE /v1/routes/default "Removing Higress default landing route"
 
         log "K8s Higress lightweight setup complete"
 

@@ -68,8 +68,13 @@ RUN mkdir -p /root/manager-workspace /root/hiclaw-fs /root/.openclaw
 
 WORKDIR /root/manager-workspace
 
+# Workaround: lsof hangs in Kind (Docker-in-Docker) when scanning /proc.
+# OpenClaw Gateway uses lsof to check port availability before binding;
+# replace with a stub that always reports "port not in use" (exit 1).
+RUN rm -f /usr/bin/lsof && printf '#!/bin/sh\nexit 1\n' > /usr/bin/lsof && chmod +x /usr/bin/lsof
+
 # OpenClaw gateway port
-EXPOSE 9000
+EXPOSE 18799
 
 # start-manager-agent.sh branches on HICLAW_RUNTIME env var
 ENTRYPOINT ["/opt/hiclaw/scripts/init/start-manager-agent.sh"]

@@ -60,6 +60,18 @@ if [ -z "$ADMIN_PASSWORD" ]; then
     log "Auto-generated admin password: ${ADMIN_PASSWORD}"
 fi
 
+# Manager secrets: must be stable across pod restarts (injected via Helm Secret)
+MANAGER_GATEWAY_KEY="${HICLAW_MANAGER_GATEWAY_KEY:-}"
+MANAGER_PASSWORD="${HICLAW_MANAGER_PASSWORD:-}"
+if [ -z "$MANAGER_GATEWAY_KEY" ]; then
+    MANAGER_GATEWAY_KEY=$(openssl rand -hex 16)
+    log "Auto-generated manager gateway key"
+fi
+if [ -z "$MANAGER_PASSWORD" ]; then
+    MANAGER_PASSWORD=$(openssl rand -base64 12 | tr -d '/+=' | head -c 16)
+    log "Auto-generated manager password"
+fi
+
 # ── Step 1: Create kind cluster ───────────────────────────────────────────
 
 if [ "$SKIP_KIND" = "0" ]; then
@@ -78,6 +90,8 @@ fi
 
 MANAGER_IMAGE="hiclaw/manager:local"
 ORCHESTRATOR_IMAGE="hiclaw/orchestrator:local"
+WORKER_IMAGE="hiclaw/worker-agent:local"
+COPAW_WORKER_IMAGE="hiclaw/copaw-worker:local"
 HELM_IMAGE_OVERRIDES=""
 
 if [ "$SKIP_BUILD" = "0" ]; then
@@ -90,18 +104,44 @@ if [ "$SKIP_BUILD" = "0" ]; then
     # Manager (choose between all-in-one and k8s-lightweight)
     if [ "$BUILD_K8S_IMAGE" = "1" ]; then
         log "Building manager image (lightweight k8s)..."
-        docker build -t "$MANAGER_IMAGE" -f "${PROJECT_ROOT}/manager/Dockerfile.k8s" "${PROJECT_ROOT}"
+        docker build -t "$MANAGER_IMAGE" \
+            --build-arg OPENCLAW_BASE_IMAGE=higress-registry.cn-hangzhou.cr.aliyuncs.com/higress/openclaw-base:latest \
+            -f "${PROJECT_ROOT}/manager/Dockerfile.k8s" "${PROJECT_ROOT}"
     else
         log "Building manager image (all-in-one)..."
         docker build -t "$MANAGER_IMAGE" -f "${PROJECT_ROOT}/manager/Dockerfile" "${PROJECT_ROOT}"
     fi
 
+    # Worker images (openclaw + copaw)
+    log "Building worker image (openclaw)..."
+    docker build -t "$WORKER_IMAGE" \
+        --build-arg OPENCLAW_BASE_IMAGE=higress-registry.cn-hangzhou.cr.aliyuncs.com/higress/openclaw-base:latest \
+        --build-context shared="${PROJECT_ROOT}/shared/lib" \
+        -f "${PROJECT_ROOT}/worker/Dockerfile" "${PROJECT_ROOT}/worker"
+
+    log "Building worker image (copaw)..."
+    docker build -t "$COPAW_WORKER_IMAGE" \
+        --build-context shared="${PROJECT_ROOT}/shared/lib" \
+        -f "${PROJECT_ROOT}/copaw/Dockerfile" "${PROJECT_ROOT}/copaw"
+
     log "Loading images into kind cluster..."
     kind load docker-image "$MANAGER_IMAGE" --name "$CLUSTER_NAME"
     kind load docker-image "$ORCHESTRATOR_IMAGE" --name "$CLUSTER_NAME"
+    kind load docker-image "$WORKER_IMAGE" --name "$CLUSTER_NAME"
+    kind load docker-image "$COPAW_WORKER_IMAGE" --name "$CLUSTER_NAME"
+
+    # Pre-load Docker Hub images that Kind nodes may not be able to pull directly
+    # (e.g., behind GFW or with unreliable Docker Hub access)
+    log "Pre-loading Docker Hub images into kind cluster..."
+    for img in "minio/minio:latest" "minio/mc:latest"; do
+        docker pull "$img" 2>/dev/null || log "WARN: failed to pull $img (may already exist locally)"
+        kind load docker-image "$img" --name "$CLUSTER_NAME"
+    done
 
     HELM_IMAGE_OVERRIDES="--set manager.image.repository=hiclaw/manager --set manager.image.tag=local --set manager.image.pullPolicy=Never"
     HELM_IMAGE_OVERRIDES="${HELM_IMAGE_OVERRIDES} --set orchestrator.image.repository=hiclaw/orchestrator --set orchestrator.image.tag=local --set orchestrator.image.pullPolicy=Never"
+    HELM_IMAGE_OVERRIDES="${HELM_IMAGE_OVERRIDES} --set worker.defaultImage.openclaw.repository=hiclaw/worker-agent --set worker.defaultImage.openclaw.tag=local"
+    HELM_IMAGE_OVERRIDES="${HELM_IMAGE_OVERRIDES} --set worker.defaultImage.copaw.repository=hiclaw/copaw-worker --set worker.defaultImage.copaw.tag=local"
 
     log "Local images built and loaded"
 else
@@ -124,6 +164,8 @@ helm upgrade --install hiclaw "$CHART_DIR" \
     --set credentials.registrationToken="$REGISTRATION_TOKEN" \
     --set credentials.adminPassword="$ADMIN_PASSWORD" \
     --set credentials.llmApiKey="$LLM_API_KEY" \
+    --set credentials.managerGatewayKey="$MANAGER_GATEWAY_KEY" \
+    --set credentials.managerPassword="$MANAGER_PASSWORD" \
     ${HELM_IMAGE_OVERRIDES} \
     --timeout 10m \
     --wait=false

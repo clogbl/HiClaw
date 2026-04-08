@@ -404,14 +404,17 @@ action_start() {
             --arg fak "$worker" \
             --arg fsk "${WORKER_MINIO_PASSWORD:-}" \
             --arg fs_domain "${HICLAW_FS_DOMAIN:-fs-local.hiclaw.io}" \
+            --arg fs_endpoint "${HICLAW_FS_ENDPOINT:-}" \
+            --arg minio_bucket "${HICLAW_MINIO_BUCKET:-}" \
             --arg orchestrator_url "${HICLAW_ORCHESTRATOR_URL:-}" \
             '{
                 "HICLAW_WORKER_NAME": $name,
-                "HICLAW_FS_ENDPOINT": ("http://" + ($fs_domain | split(":")[0]) + ":8080"),
+                "HICLAW_FS_ENDPOINT": (if $fs_endpoint != "" then $fs_endpoint else ("http://" + ($fs_domain | split(":")[0]) + ":8080") end),
                 "HICLAW_FS_ACCESS_KEY": $fak,
                 "HICLAW_FS_SECRET_KEY": $fsk
             }
-            | if $orchestrator_url != "" then . + {"HICLAW_ORCHESTRATOR_URL": $orchestrator_url} else . end')
+            | if $orchestrator_url != "" then . + {"HICLAW_ORCHESTRATOR_URL": $orchestrator_url} else . end
+            | if $minio_bucket != "" then . + {"HICLAW_MINIO_BUCKET": $minio_bucket} else . end')
 
         local create_body
         create_body=$(jq -cn \

@@ -18,7 +18,7 @@ credentials:
   adminUser: "admin"
   adminPassword: ""           # Matrix admin password (required)
   llmApiKey: ""               # LLM API key (required)
-  llmProvider: "alibaba-cloud"
+  llmProvider: "qwen"
   defaultModel: "qwen3.5-plus"
   orchestratorApiKey: ""      # Orchestrator auth key (auto-generated if empty)
   managerPassword: ""         # Manager Matrix password (auto-generated if empty)
@@ -171,7 +171,7 @@ elementWeb:
   matrixServerUrl: ""   # Browser-accessible Matrix URL (e.g. http://localhost:18080); defaults to internal Tuwunel URL
   image:
     repository: higress-registry.cn-hangzhou.cr.aliyuncs.com/higress/element-web
-    tag: "20260323"
+    tag: "20260216"
     pullPolicy: IfNotPresent
   replicaCount: 1
   resources:

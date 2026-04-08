@@ -80,18 +80,19 @@ export WORKER_MATRIX_TOKEN
 export WORKER_GATEWAY_KEY
 # Matrix Server URL:
 #   Cloud mode: Worker connects directly via NLB (HICLAW_MATRIX_URL), not through Higress
+#   K8s mode:   Worker connects via K8s Service URL (HICLAW_MATRIX_URL)
 #   Local mode: always use fixed internal domain so workers on hiclaw-net can reach Higress
 #   regardless of user-configured Matrix domain (Higress matrix-homeserver route uses domains:[])
-if [ "${HICLAW_RUNTIME}" = "aliyun" ] && [ -n "${HICLAW_MATRIX_URL:-}" ]; then
+if [ -n "${HICLAW_MATRIX_URL:-}" ] && [ "${HICLAW_RUNTIME}" != "docker" ]; then
     export HICLAW_MATRIX_SERVER="${HICLAW_MATRIX_URL}"
 else
     export HICLAW_MATRIX_SERVER="http://matrix-local.hiclaw.io:8080"
 fi
 # Matrix Domain for user IDs keeps original port (e.g., :9080)
 export HICLAW_MATRIX_DOMAIN="${MATRIX_DOMAIN_FOR_ID}"
-# AI Gateway URL: cloud uses HICLAW_AI_GATEWAY_URL; local always uses fixed internal domain
+# AI Gateway URL: cloud/k8s uses HICLAW_AI_GATEWAY_URL; local always uses fixed internal domain
 # so workers on hiclaw-net can reach Higress regardless of user-configured AI gateway domain.
-if [ "${HICLAW_RUNTIME}" = "aliyun" ] && [ -n "${HICLAW_AI_GATEWAY_URL:-}" ]; then
+if [ -n "${HICLAW_AI_GATEWAY_URL:-}" ] && [ "${HICLAW_RUNTIME}" != "docker" ]; then
     export HICLAW_AI_GATEWAY="${HICLAW_AI_GATEWAY_URL}"
 else
     export HICLAW_AI_GATEWAY="http://aigw-local.hiclaw.io:8080"
