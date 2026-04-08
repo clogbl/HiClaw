@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
@@ -132,10 +133,17 @@ func main() {
 		logger.Info("starting in-cluster mode")
 
 		restCfg := ctrl.GetConfigOrDie()
+		var mgrOpts ctrl.Options
+		mgrOpts.Scheme = scheme
+		// Restrict cache to the controller's own namespace to work with
+		// namespace-scoped RBAC (Role/RoleBinding instead of ClusterRole).
+		if cfg.K8sNamespace != "" {
+			mgrOpts.Cache.DefaultNamespaces = map[string]cache.Config{
+				cfg.K8sNamespace: {},
+			}
+		}
 		var err error
-		mgr, err = ctrl.NewManager(restCfg, ctrl.Options{
-			Scheme: scheme,
-		})
+		mgr, err = ctrl.NewManager(restCfg, mgrOpts)
 		if err != nil {
 			logger.Error(err, "failed to create controller manager")
 			os.Exit(1)

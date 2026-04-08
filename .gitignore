@@ -43,3 +43,7 @@ pnpm-lock.yaml
 
 # Claude Code
 CLAUDE.md
+
+
+# Compiled binaries
+hiclaw-controller/controller

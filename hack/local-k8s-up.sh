@@ -15,6 +15,7 @@
 #   HICLAW_CLUSTER_NAME         kind cluster name (default: hiclaw)
 #   HICLAW_NAMESPACE            K8s namespace (default: hiclaw)
 #   HICLAW_SKIP_KIND            Skip kind cluster creation (default: 0)
+#   HICLAW_CONTROLLER_API_KEY   Controller auth key (auto-generated if empty)
 #   HICLAW_SKIP_BUILD           Skip local image build (default: 0, set to 1 to use remote images)
 #   HICLAW_BUILD_K8S_IMAGE      Build lightweight k8s manager image instead of all-in-one (default: 0)
 #
@@ -60,9 +61,14 @@ if [ -z "$ADMIN_PASSWORD" ]; then
     log "Auto-generated admin password: ${ADMIN_PASSWORD}"
 fi
 
-# Manager secrets: must be stable across pod restarts (injected via Helm Secret)
+# Controller & Manager secrets: must be stable across pod restarts (injected via Helm Secret)
+CONTROLLER_API_KEY="${HICLAW_CONTROLLER_API_KEY:-}"
 MANAGER_GATEWAY_KEY="${HICLAW_MANAGER_GATEWAY_KEY:-}"
 MANAGER_PASSWORD="${HICLAW_MANAGER_PASSWORD:-}"
+if [ -z "$CONTROLLER_API_KEY" ]; then
+    CONTROLLER_API_KEY=$(openssl rand -hex 16)
+    log "Auto-generated controller API key"
+fi
 if [ -z "$MANAGER_GATEWAY_KEY" ]; then
     MANAGER_GATEWAY_KEY=$(openssl rand -hex 16)
     log "Auto-generated manager gateway key"
@@ -164,6 +170,7 @@ helm upgrade --install hiclaw "$CHART_DIR" \
     --set credentials.registrationToken="$REGISTRATION_TOKEN" \
     --set credentials.adminPassword="$ADMIN_PASSWORD" \
     --set credentials.llmApiKey="$LLM_API_KEY" \
+    --set credentials.controllerApiKey="$CONTROLLER_API_KEY" \
     --set credentials.managerGatewayKey="$MANAGER_GATEWAY_KEY" \
     --set credentials.managerPassword="$MANAGER_PASSWORD" \
     ${HELM_IMAGE_OVERRIDES} \
@@ -199,10 +206,14 @@ log "  Username: admin"
 log "  Password: ${ADMIN_PASSWORD}"
 echo ""
 log "Registration token: ${REGISTRATION_TOKEN}"
+log "Controller API key: ${CONTROLLER_API_KEY}"
 echo ""
 log "Access Element Web:"
 log "  kubectl port-forward svc/hiclaw-element-web 8080:8080 -n ${NAMESPACE}"
 log "  Then open: http://localhost:8080"
+echo ""
+log "View Controller logs:"
+log "  kubectl logs -f deployment/hiclaw-controller -n ${NAMESPACE}"
 echo ""
 log "View Manager logs:"
 log "  kubectl logs -f deployment/hiclaw-manager -n ${NAMESPACE}"
