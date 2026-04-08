@@ -136,6 +136,7 @@ func (r *TeamReconciler) handleCreate(ctx context.Context, t *v1beta1.Team) (rec
 		return r.failTeam(ctx, t, fmt.Sprintf("leader DM room creation failed: %v", err))
 	}
 	logger.Info("leader DM room ready", "roomID", leaderDMRoom.RoomID)
+	t.Status.LeaderDMRoomID = leaderDMRoom.RoomID
 
 	// --- Step 3: Write inline configs for leader + workers ---
 	if t.Spec.Leader.Identity != "" || t.Spec.Leader.Soul != "" || t.Spec.Leader.Agents != "" {
@@ -170,6 +171,32 @@ func (r *TeamReconciler) handleCreate(ctx context.Context, t *v1beta1.Team) (rec
 		}
 	}
 
+	// --- Step 4.5: Inject coordination context for leader ---
+	leaderAgentPrefix := fmt.Sprintf("agents/%s", t.Spec.Leader.Name)
+	teamWorkers := make([]agentconfig.TeamWorkerInfo, 0, len(t.Spec.Workers))
+	for _, w := range t.Spec.Workers {
+		teamWorkers = append(teamWorkers, agentconfig.TeamWorkerInfo{
+			Name: w.Name,
+		})
+	}
+	coordCtx := agentconfig.CoordinationContext{
+		WorkerName:     t.Spec.Leader.Name,
+		Role:           "team_leader",
+		MatrixDomain:   r.MatrixDomain,
+		TeamName:       t.Name,
+		TeamRoomID:     teamRoom.RoomID,
+		LeaderDMRoomID: leaderDMRoom.RoomID,
+		TeamWorkers:    teamWorkers,
+	}
+	if t.Spec.Admin != nil {
+		coordCtx.TeamAdminID = t.Spec.Admin.MatrixUserID
+	}
+	existing, _ := r.OSS.GetObject(ctx, leaderAgentPrefix+"/AGENTS.md")
+	injected := agentconfig.InjectCoordinationContext(string(existing), coordCtx)
+	if err := r.OSS.PutObject(ctx, leaderAgentPrefix+"/AGENTS.md", []byte(injected)); err != nil {
+		logger.Error(err, "leader coordination context injection failed (non-fatal)")
+	}
+
 	// --- Expose ports for team workers ---
 	workerExposed := make(map[string][]v1beta1.ExposedPortStatus)
 	for _, w := range t.Spec.Workers {
@@ -189,6 +216,7 @@ func (r *TeamReconciler) handleCreate(ctx context.Context, t *v1beta1.Team) (rec
 	t.Status.LeaderReady = true
 	t.Status.ReadyWorkers = len(t.Spec.Workers)
 	t.Status.TeamRoomID = teamRoom.RoomID
+	t.Status.LeaderDMRoomID = leaderDMRoom.RoomID
 	t.Status.Message = ""
 	if len(workerExposed) > 0 {
 		t.Status.WorkerExposedPorts = workerExposed

@@ -86,6 +86,11 @@ func (c *MinIOClient) Mirror(ctx context.Context, src, dst string, opts MirrorOp
 	return err
 }
 
+func (c *MinIOClient) DeletePrefix(ctx context.Context, prefix string) error {
+	_, err := c.runMC(ctx, "rm", "--recursive", "--force", c.fullPath(prefix))
+	return err
+}
+
 func (c *MinIOClient) ListObjects(ctx context.Context, prefix string) ([]string, error) {
 	out, err := c.runMC(ctx, "ls", c.fullPath(prefix))
 	if err != nil {

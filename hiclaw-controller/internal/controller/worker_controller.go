@@ -441,6 +441,16 @@ func (r *WorkerReconciler) failCreate(ctx context.Context, w *v1beta1.Worker, ms
 	return reconcile.Result{RequeueAfter: time.Minute}, fmt.Errorf("%s", msg)
 }
 
+// failUpdate records an update error without changing Phase away from "Running",
+// so the next reconcile stays in handleUpdate instead of falling back to handleCreate.
+func (r *WorkerReconciler) failUpdate(ctx context.Context, w *v1beta1.Worker, msg string) (reconcile.Result, error) {
+	_ = r.Get(ctx, client.ObjectKeyFromObject(w), w)
+	w.Status.Phase = "Running"
+	w.Status.Message = msg
+	r.Status().Update(ctx, w)
+	return reconcile.Result{RequeueAfter: time.Minute}, fmt.Errorf("%s", msg)
+}
+
 func (r *WorkerReconciler) mergeAndPushAgentsMD(ctx context.Context, workerName, agentPrefix string) error {
 	builtinPath := r.WorkerAgentDir + "/AGENTS.md"
 	builtinContent, err := os.ReadFile(builtinPath)
@@ -550,25 +560,24 @@ func (r *WorkerReconciler) handleUpdate(ctx context.Context, w *v1beta1.Worker) 
 	// --- Step 1: Load credentials ---
 	creds, err := r.Creds.Load(ctx, workerName)
 	if err != nil || creds == nil {
-		return r.failCreate(ctx, w, fmt.Sprintf("credentials not found for %s", workerName))
+		return r.failUpdate(ctx, w, fmt.Sprintf("credentials not found for %s", workerName))
 	}
 
 	// Get fresh Matrix token
 	matrixToken, err := r.Matrix.Login(ctx, workerName, creds.MatrixPassword)
 	if err != nil {
-		logger.Error(err, "could not obtain fresh Matrix token, using placeholder")
-		matrixToken = "placeholder"
+		return r.failUpdate(ctx, w, fmt.Sprintf("Matrix login failed: %v", err))
 	}
 
 	// --- Step 2: Deploy package if specified ---
 	if w.Spec.Package != "" {
 		extractedDir, err := r.Packages.ResolveAndExtract(ctx, w.Spec.Package, workerName)
 		if err != nil {
-			return r.failCreate(ctx, w, fmt.Sprintf("package resolve/extract failed: %v", err))
+			return r.failUpdate(ctx, w, fmt.Sprintf("package resolve/extract failed: %v", err))
 		}
 		if extractedDir != "" {
 			if err := r.Packages.DeployToMinIO(ctx, extractedDir, workerName, true); err != nil {
-				return r.failCreate(ctx, w, fmt.Sprintf("package deploy failed: %v", err))
+				return r.failUpdate(ctx, w, fmt.Sprintf("package deploy failed: %v", err))
 			}
 			logger.Info("package deployed for update", "name", workerName, "dir", extractedDir)
 		}
@@ -578,7 +587,7 @@ func (r *WorkerReconciler) handleUpdate(ctx context.Context, w *v1beta1.Worker) 
 	if w.Spec.Identity != "" || w.Spec.Soul != "" || w.Spec.Agents != "" {
 		agentDir := fmt.Sprintf("%s/%s", r.AgentFSDir, workerName)
 		if err := executor.WriteInlineConfigs(agentDir, w.Spec.Runtime, w.Spec.Identity, w.Spec.Soul, w.Spec.Agents); err != nil {
-			return r.failCreate(ctx, w, fmt.Sprintf("write inline configs failed: %v", err))
+			return r.failUpdate(ctx, w, fmt.Sprintf("write inline configs failed: %v", err))
 		}
 	}
 
@@ -610,10 +619,10 @@ func (r *WorkerReconciler) handleUpdate(ctx context.Context, w *v1beta1.Worker) 
 		ChannelPolicy:  channelPolicy,
 	})
 	if err != nil {
-		return r.failCreate(ctx, w, fmt.Sprintf("config generation failed: %v", err))
+		return r.failUpdate(ctx, w, fmt.Sprintf("config generation failed: %v", err))
 	}
 	if err := r.OSS.PutObject(ctx, agentPrefix+"/openclaw.json", configJSON); err != nil {
-		return r.failCreate(ctx, w, fmt.Sprintf("config push failed: %v", err))
+		return r.failUpdate(ctx, w, fmt.Sprintf("config push failed: %v", err))
 	}
 
 	// --- Step 4: Push skills (additive) ---
@@ -752,6 +761,12 @@ func (r *WorkerReconciler) handleDelete(ctx context.Context, w *v1beta1.Worker) 
 		}
 	}
 
+	// --- Clean up OSS agent data ---
+	agentPrefix := fmt.Sprintf("agents/%s/", workerName)
+	if err := r.OSS.DeletePrefix(ctx, agentPrefix); err != nil {
+		logger.Error(err, "failed to clean up OSS agent data (non-fatal)")
+	}
+
 	// --- Delete credentials file ---
 	if err := r.Creds.Delete(ctx, workerName); err != nil {
 		logger.Error(err, "failed to delete credentials (non-fatal)")
@@ -759,17 +774,6 @@ func (r *WorkerReconciler) handleDelete(ctx context.Context, w *v1beta1.Worker) 
 
 	logger.Info("worker deleted", "name", workerName)
 	return nil
-}
-
-func joinStrings(ss []string) string {
-	result := ""
-	for i, s := range ss {
-		if i > 0 {
-			result += ","
-		}
-		result += s
-	}
-	return result
 }
 
 func nilIfEmpty(s string) *string {

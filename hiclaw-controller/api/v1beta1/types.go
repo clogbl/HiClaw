@@ -125,12 +125,13 @@ type TeamWorkerSpec struct {
 }
 
 type TeamStatus struct {
-	Phase        string `json:"phase,omitempty"` // Pending/Active/Degraded
-	TeamRoomID   string `json:"teamRoomID,omitempty"`
-	LeaderReady  bool   `json:"leaderReady,omitempty"`
-	ReadyWorkers int    `json:"readyWorkers,omitempty"`
-	TotalWorkers int    `json:"totalWorkers,omitempty"`
-	Message      string `json:"message,omitempty"`
+	Phase              string `json:"phase,omitempty"` // Pending/Active/Degraded
+	TeamRoomID         string `json:"teamRoomID,omitempty"`
+	LeaderDMRoomID     string `json:"leaderDMRoomID,omitempty"`
+	LeaderReady        bool   `json:"leaderReady,omitempty"`
+	ReadyWorkers       int    `json:"readyWorkers,omitempty"`
+	TotalWorkers       int    `json:"totalWorkers,omitempty"`
+	Message            string `json:"message,omitempty"`
 	WorkerExposedPorts map[string][]ExposedPortStatus `json:"workerExposedPorts,omitempty"`
 }
 

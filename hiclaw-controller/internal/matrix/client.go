@@ -40,8 +40,9 @@ type Client interface {
 
 // TuwunelClient implements Client for Tuwunel (conduwuit) homeservers.
 type TuwunelClient struct {
-	config Config
-	http   *http.Client
+	config     Config
+	http       *http.Client
+	adminToken atomic.Value // cached admin access token (string)
 }
 
 // NewTuwunelClient creates a Matrix client for a Tuwunel homeserver.
@@ -54,6 +55,19 @@ func NewTuwunelClient(cfg Config, httpClient *http.Client) *TuwunelClient {
 
 func (c *TuwunelClient) UserID(localpart string) string {
 	return fmt.Sprintf("@%s:%s", localpart, c.config.Domain)
+}
+
+// ensureAdminToken obtains and caches an admin access token via Login.
+func (c *TuwunelClient) ensureAdminToken(ctx context.Context) (string, error) {
+	if t, ok := c.adminToken.Load().(string); ok && t != "" {
+		return t, nil
+	}
+	token, err := c.Login(ctx, c.config.AdminUser, c.config.AdminPassword)
+	if err != nil {
+		return "", fmt.Errorf("admin login: %w", err)
+	}
+	c.adminToken.Store(token)
+	return token, nil
 }
 
 func (c *TuwunelClient) EnsureUser(ctx context.Context, req EnsureUserRequest) (*UserCredentials, error) {
@@ -148,6 +162,15 @@ func (c *TuwunelClient) CreateRoom(ctx context.Context, req CreateRoomRequest) (
 		return &RoomInfo{RoomID: req.ExistingRoomID, Created: false}, nil
 	}
 
+	token := req.CreatorToken
+	if token == "" {
+		var err error
+		token, err = c.ensureAdminToken(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("create room %q: %w", req.Name, err)
+		}
+	}
+
 	body := map[string]interface{}{
 		"name":   req.Name,
 		"topic":  req.Topic,
@@ -178,7 +201,7 @@ func (c *TuwunelClient) CreateRoom(ctx context.Context, req CreateRoomRequest) (
 	}
 
 	statusCode, err := c.doJSON(ctx, http.MethodPost,
-		"/_matrix/client/v3/createRoom", req.CreatorToken, body, &resp)
+		"/_matrix/client/v3/createRoom", token, body, &resp)
 	if err != nil {
 		return nil, fmt.Errorf("create room %q: %w", req.Name, err)
 	}
@@ -207,10 +230,18 @@ func (c *TuwunelClient) JoinRoom(ctx context.Context, roomID, userToken string) 
 }
 
 func (c *TuwunelClient) LeaveRoom(ctx context.Context, roomID, userToken string) error {
+	token := userToken
+	if token == "" {
+		var err error
+		token, err = c.ensureAdminToken(ctx)
+		if err != nil {
+			return fmt.Errorf("leave room %s: %w", roomID, err)
+		}
+	}
 	encodedRoom := encodeRoomID(roomID)
 	statusCode, err := c.doJSON(ctx, http.MethodPost,
 		fmt.Sprintf("/_matrix/client/v3/rooms/%s/leave", encodedRoom),
-		userToken, map[string]interface{}{}, nil)
+		token, map[string]interface{}{}, nil)
 	if err != nil {
 		return fmt.Errorf("leave room %s: %w", roomID, err)
 	}
@@ -270,6 +301,11 @@ func (c *TuwunelClient) doJSON(ctx context.Context, method, path, token string, 
 		return 0, err
 	}
 	defer resp.Body.Close()
+
+	// Clear cached admin token on auth failure so next call re-authenticates
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		c.adminToken.Store("")
+	}
 
 	respBody, _ := io.ReadAll(resp.Body)
 

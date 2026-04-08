@@ -27,6 +27,9 @@ type StorageClient interface {
 
 	// ListObjects lists object names under a prefix.
 	ListObjects(ctx context.Context, prefix string) ([]string, error)
+
+	// DeletePrefix recursively removes all objects under the given prefix.
+	DeletePrefix(ctx context.Context, prefix string) error
 }
 
 // StorageAdminClient handles user and policy management (embedded mode only).
