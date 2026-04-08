@@ -212,3 +212,104 @@ func TestMiddlewareRequireWorkerRejectsManager(t *testing.T) {
 		t.Errorf("expected 403, got %d", w.Code)
 	}
 }
+
+func TestRequireAnyAllowsAllRoles(t *testing.T) {
+	ks := NewKeyStore("mgr-secret", nil)
+	workerKey := ks.GenerateWorkerKey("alice")
+	mw := NewMiddleware(ks)
+
+	for _, tc := range []struct {
+		label string
+		key   string
+	}{
+		{"manager", "mgr-secret"},
+		{"worker", workerKey},
+	} {
+		t.Run(tc.label, func(t *testing.T) {
+			var gotIdentity *CallerIdentity
+			handler := mw.RequireAny(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotIdentity = CallerFromContext(r.Context())
+			}))
+
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/workers", nil)
+			req.Header.Set("Authorization", "Bearer "+tc.key)
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, req)
+
+			if gotIdentity == nil {
+				t.Fatal("expected identity in context")
+			}
+		})
+	}
+}
+
+func TestRequireAnyRejectsInvalidKey(t *testing.T) {
+	ks := NewKeyStore("mgr-secret", nil)
+	mw := NewMiddleware(ks)
+
+	handler := mw.RequireAny(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("handler should not be called")
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/workers", nil)
+	req.Header.Set("Authorization", "Bearer bad-key")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestRequireRolesAllowsMatchingRole(t *testing.T) {
+	ks := NewKeyStore("mgr-secret", nil)
+	mw := NewMiddleware(ks)
+
+	called := false
+	handler := mw.RequireRoles([]string{RoleManager, RoleAdmin}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/workers", nil)
+	req.Header.Set("Authorization", "Bearer mgr-secret")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if !called {
+		t.Error("handler should be called for matching role")
+	}
+}
+
+func TestRequireRolesRejectsNonMatchingRole(t *testing.T) {
+	ks := NewKeyStore("mgr-secret", nil)
+	workerKey := ks.GenerateWorkerKey("alice")
+	mw := NewMiddleware(ks)
+
+	handler := mw.RequireRoles([]string{RoleManager, RoleAdmin}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("handler should not be called")
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/workers", nil)
+	req.Header.Set("Authorization", "Bearer "+workerKey)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", w.Code)
+	}
+}
+
+func TestCallerIdentityUsernameField(t *testing.T) {
+	ks := NewKeyStore("mgr-key", nil)
+
+	id, ok := ks.ValidateKey("mgr-key")
+	if !ok || id.Username != "manager" {
+		t.Errorf("expected manager username, got %q", id.Username)
+	}
+
+	workerKey := ks.GenerateWorkerKey("alice")
+	wid, ok := ks.ValidateKey(workerKey)
+	if !ok || wid.Username != "alice" || wid.WorkerName != "alice" {
+		t.Errorf("expected alice username and workerName, got %+v", wid)
+	}
+}

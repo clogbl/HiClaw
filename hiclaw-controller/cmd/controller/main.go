@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -21,11 +20,9 @@ import (
 	"github.com/hiclaw/hiclaw-controller/internal/gateway"
 	"github.com/hiclaw/hiclaw-controller/internal/matrix"
 	"github.com/hiclaw/hiclaw-controller/internal/oss"
-	"github.com/hiclaw/hiclaw-controller/internal/proxy"
 	"github.com/hiclaw/hiclaw-controller/internal/server"
 	"github.com/hiclaw/hiclaw-controller/internal/store"
 	"github.com/hiclaw/hiclaw-controller/internal/watcher"
-	"github.com/hiclaw/hiclaw-controller/internal/workerapi"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -81,6 +78,17 @@ func main() {
 	// --- Executors (embedded mode shell scripts) ---
 	shell := executor.NewShell(cfg.SkillsDir)
 	packages := executor.NewPackageResolver("/tmp/import")
+
+	// --- Go service clients ---
+	matrixClient := matrix.NewTuwunelClient(cfg.MatrixConfig(), nil)
+	gwClient := gateway.NewHigressClient(cfg.GatewayConfig(), nil)
+	ossClient := oss.NewMinIOClient(cfg.OSSConfig())
+	var ossAdminClient oss.StorageAdminClient
+	if cfg.KubeMode == "embedded" {
+		ossAdminClient = oss.NewMinIOAdminClient(cfg.OSSConfig())
+	}
+	agentGen := agentconfig.NewGenerator(cfg.AgentConfig())
+	credStore := &controller.FileCredentialStore{Dir: envOrDefault("HICLAW_CREDS_DIR", "/data/worker-creds")}
 
 	// --- Kube mode ---
 	var mgr ctrl.Manager
@@ -139,8 +147,6 @@ func main() {
 		restCfg := ctrl.GetConfigOrDie()
 		var mgrOpts ctrl.Options
 		mgrOpts.Scheme = scheme
-		// Restrict cache to the controller's own namespace to work with
-		// namespace-scoped RBAC (Role/RoleBinding instead of ClusterRole).
 		if cfg.K8sNamespace != "" {
 			mgrOpts.Cache.DefaultNamespaces = map[string]cache.Config{
 				cfg.K8sNamespace: {},
@@ -153,17 +159,6 @@ func main() {
 			os.Exit(1)
 		}
 	}
-
-	// --- Go service clients ---
-	matrixClient := matrix.NewTuwunelClient(cfg.MatrixConfig(), nil)
-	gwClient := gateway.NewHigressClient(cfg.GatewayConfig(), nil)
-	ossClient := oss.NewMinIOClient(cfg.OSSConfig())
-	var ossAdminClient oss.StorageAdminClient
-	if cfg.KubeMode == "embedded" {
-		ossAdminClient = oss.NewMinIOAdminClient(cfg.OSSConfig())
-	}
-	agentGen := agentconfig.NewGenerator(cfg.AgentConfig())
-	credStore := &controller.FileCredentialStore{Dir: envOrDefault("HICLAW_CREDS_DIR", "/data/worker-creds")}
 
 	// --- Register reconcilers ---
 	sharedReconcilerFields := struct {
@@ -244,9 +239,22 @@ func main() {
 		os.Exit(1)
 	}
 
-	// --- HTTP server (merged controller API routes) ---
-	httpServer := server.NewHTTPServer(cfg.HTTPAddr, cfg.KubeMode)
-	registerControllerAPIRoutes(httpServer.Mux, cfg, authMw, registry, gwClient, keyStore, stsService)
+	// --- Unified HTTP API server ---
+	namespace := cfg.K8sNamespace
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	httpServer := server.NewHTTPServer(cfg.HTTPAddr, server.ServerDeps{
+		Client:     mgr.GetClient(),
+		Backend:    registry,
+		Gateway:    gwClient,
+		STS:        stsService,
+		AuthMw:     authMw,
+		KubeMode:   cfg.KubeMode,
+		Namespace:  namespace,
+		SocketPath: cfg.SocketPath,
+	})
 
 	go func() {
 		if err := httpServer.Start(); err != nil {
@@ -268,49 +276,6 @@ func main() {
 	if err := mgr.Start(ctx); err != nil {
 		logger.Error(err, "controller manager exited with error")
 		os.Exit(1)
-	}
-}
-
-// registerControllerAPIRoutes adds the worker/gateway/credentials/proxy routes
-// to the controller's mux.
-func registerControllerAPIRoutes(
-	mux *http.ServeMux,
-	cfg *config.Config,
-	authMw *authpkg.Middleware,
-	registry *backend.Registry,
-	gwClient gateway.Client,
-	keyStore *authpkg.KeyStore,
-	stsService *credentials.STSService,
-) {
-	controllerURL := cfg.ControllerURL
-	workerHandler := workerapi.NewWorkerHandler(registry, keyStore, controllerURL)
-	gatewayHandler := workerapi.NewGatewayHandler(gwClient)
-	stsHandler := credentials.NewHandler(stsService)
-
-	// Worker lifecycle — manager only
-	mux.Handle("POST /workers", authMw.RequireManager(http.HandlerFunc(workerHandler.Create)))
-	mux.Handle("GET /workers", authMw.RequireManager(http.HandlerFunc(workerHandler.List)))
-	mux.Handle("GET /workers/{name}", authMw.RequireManager(http.HandlerFunc(workerHandler.Status)))
-	mux.Handle("POST /workers/{name}/start", authMw.RequireManager(http.HandlerFunc(workerHandler.Start)))
-	mux.Handle("POST /workers/{name}/stop", authMw.RequireManager(http.HandlerFunc(workerHandler.Stop)))
-	mux.Handle("DELETE /workers/{name}", authMw.RequireManager(http.HandlerFunc(workerHandler.Delete)))
-
-	// Worker readiness — workers report themselves
-	mux.Handle("POST /workers/{name}/ready", authMw.RequireWorker(http.HandlerFunc(workerHandler.Ready)))
-
-	// Gateway — manager only
-	mux.Handle("POST /gateway/consumers", authMw.RequireManager(http.HandlerFunc(gatewayHandler.CreateConsumer)))
-	mux.Handle("POST /gateway/consumers/{id}/bind", authMw.RequireManager(http.HandlerFunc(gatewayHandler.BindConsumer)))
-	mux.Handle("DELETE /gateway/consumers/{id}", authMw.RequireManager(http.HandlerFunc(gatewayHandler.DeleteConsumer)))
-
-	// STS token refresh — workers only
-	mux.Handle("POST /credentials/sts", authMw.RequireWorker(http.HandlerFunc(stsHandler.RefreshToken)))
-
-	// Docker API passthrough (embedded mode only)
-	if cfg.KubeMode == "embedded" {
-		validator := proxy.NewSecurityValidator()
-		proxyHandler := proxy.NewHandler(cfg.SocketPath, validator)
-		mux.Handle("/docker/", authMw.RequireManager(http.StripPrefix("/docker", proxyHandler)))
 	}
 }
 

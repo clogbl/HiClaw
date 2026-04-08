@@ -1,4 +1,4 @@
-package workerapi
+package server
 
 import (
 	"encoding/json"
@@ -9,17 +9,15 @@ import (
 	"github.com/hiclaw/hiclaw-controller/internal/httputil"
 )
 
-// GatewayHandler handles /gateway/* HTTP requests using the unified gateway.Client.
+// GatewayHandler handles /api/v1/gateway/* requests using the unified gateway.Client.
 type GatewayHandler struct {
 	gw gateway.Client
 }
 
-// NewGatewayHandler creates a GatewayHandler backed by a gateway.Client.
 func NewGatewayHandler(gw gateway.Client) *GatewayHandler {
 	return &GatewayHandler{gw: gw}
 }
 
-// CreateConsumer handles POST /gateway/consumers.
 func (h *GatewayHandler) CreateConsumer(w http.ResponseWriter, r *http.Request) {
 	if h.gw == nil {
 		httputil.WriteError(w, http.StatusNotImplemented, "no gateway backend available")
@@ -54,9 +52,6 @@ func (h *GatewayHandler) CreateConsumer(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// BindConsumer handles POST /gateway/consumers/{id}/bind.
-// For self-hosted Higress, this authorizes the consumer on all AI routes.
-// The request body fields (model_api_id, env_id) are only used by cloud APIG.
 func (h *GatewayHandler) BindConsumer(w http.ResponseWriter, r *http.Request) {
 	if h.gw == nil {
 		httputil.WriteError(w, http.StatusNotImplemented, "no gateway backend available")
@@ -78,7 +73,6 @@ func (h *GatewayHandler) BindConsumer(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// DeleteConsumer handles DELETE /gateway/consumers/{id}.
 func (h *GatewayHandler) DeleteConsumer(w http.ResponseWriter, r *http.Request) {
 	if h.gw == nil {
 		httputil.WriteError(w, http.StatusNotImplemented, "no gateway backend available")

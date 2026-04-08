@@ -10,17 +10,19 @@ import (
 
 // CallerIdentity represents the authenticated caller.
 type CallerIdentity struct {
-	Role       string // "manager" | "worker"
-	WorkerName string // non-empty only when Role == "worker"
+	Role       string // "admin" | "manager" | "team-leader" | "worker"
+	Username   string // canonical name (worker name, leader name, or admin username)
+	Team       string // team name (from Worker CR annotations, empty for standalone)
+	WorkerName string // kept for backward compat; equals Username when Role == "worker"
 }
 
 // KeyStore manages API keys for manager and workers.
 type KeyStore struct {
 	mu         sync.RWMutex
-	managerKey string              // immutable after construction
-	workerKeys map[string]string   // workerName -> apiKey
-	keyIndex   map[string]string   // apiKey -> workerName (reverse index)
-	persister  KeyPersister        // nil in local mode
+	managerKey string            // immutable after construction
+	workerKeys map[string]string // workerName -> apiKey
+	keyIndex   map[string]string // apiKey -> workerName (reverse index)
+	persister  KeyPersister      // nil in local mode
 }
 
 // NewKeyStore creates a KeyStore with the given static manager key and optional persister.
@@ -117,14 +119,14 @@ func (ks *KeyStore) ValidateKey(key string) (*CallerIdentity, bool) {
 
 	// managerKey is immutable after construction, no lock needed
 	if key == ks.managerKey {
-		return &CallerIdentity{Role: RoleManager}, true
+		return &CallerIdentity{Role: RoleManager, Username: "manager"}, true
 	}
 
 	ks.mu.RLock()
 	defer ks.mu.RUnlock()
 
 	if workerName, exists := ks.keyIndex[key]; exists {
-		return &CallerIdentity{Role: RoleWorker, WorkerName: workerName}, true
+		return &CallerIdentity{Role: RoleWorker, Username: workerName, WorkerName: workerName}, true
 	}
 
 	return nil, false
