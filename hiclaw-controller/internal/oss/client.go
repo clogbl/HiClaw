@@ -32,6 +32,12 @@ type StorageClient interface {
 	DeletePrefix(ctx context.Context, prefix string) error
 }
 
+// BucketManager is implemented by StorageClient backends that can create buckets.
+// In incluster mode with external OSS, the bucket is pre-created, so this is a no-op.
+type BucketManager interface {
+	EnsureBucket(ctx context.Context) error
+}
+
 // StorageAdminClient handles user and policy management (embedded mode only).
 // In incluster mode (cloud OSS), these operations are unnecessary — workers
 // get scoped credentials via STS instead.

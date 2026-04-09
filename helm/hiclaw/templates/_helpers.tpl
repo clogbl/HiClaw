@@ -145,12 +145,11 @@ app.kubernetes.io/component: {{ .component }}
 {{- end }}
 {{- end }}
 
-{{- define "hiclaw.manager.serviceAccountName" -}}
-{{- if .Values.manager.serviceAccount.create }}
-{{- default (include "hiclaw.manager.fullname" .) .Values.manager.serviceAccount.name }}
-{{- else }}
-{{- default "default" .Values.manager.serviceAccount.name }}
-{{- end }}
+{{/* ── Manager image helper (used by controller to create Manager CR) ──── */}}
+
+{{- define "hiclaw.manager.image" -}}
+{{- $tag := default .Values.global.imageTag .Values.manager.image.tag }}
+{{- printf "%s:%s" .Values.manager.image.repository $tag }}
 {{- end }}
 
 {{/* ── Worker image helpers ────────────────────────────────────────────── */}}

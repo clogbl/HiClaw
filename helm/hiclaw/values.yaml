@@ -21,8 +21,6 @@ credentials:
   llmProvider: "qwen"
   defaultModel: "qwen3.5-plus"
   controllerApiKey: ""       # Controller auth key (auto-generated if empty)
-  managerPassword: ""         # Manager Matrix password (auto-generated if empty)
-  managerGatewayKey: ""       # Manager Higress consumer key (auto-generated if empty)
   higressAdminUser: "admin"    # Higress console admin username
   higressAdminPassword: "admin" # Higress console admin password
 
@@ -139,36 +137,24 @@ controller:
   env: {}
   timezone: "Asia/Shanghai"
 
-# ── Manager Agent ─────────────────────────────────────────────────────────
+# ── Manager Agent (CRD-driven) ────────────────────────────────────────────
+# When enabled, the controller creates a Manager CR at startup. The
+# ManagerReconciler then provisions the Matrix account, Gateway consumer,
+# and Pod automatically. No static Deployment is created by Helm.
 manager:
-  enabled: true
+  enabled: true                 # create Manager CR during cluster initialization
+  model: ""                     # LLM model; defaults to credentials.defaultModel
+  runtime: "openclaw"           # openclaw | copaw
   image:
     repository: higress-registry.cn-hangzhou.cr.aliyuncs.com/higress/hiclaw-manager
-    tag: ""                   # defaults to global.imageTag
-    pullPolicy: IfNotPresent
-  replicaCount: 1
+    tag: ""                     # defaults to global.imageTag
   resources:
     requests:
-      cpu: "1"
+      cpu: 500m
       memory: 1Gi
     limits:
       cpu: "2"
-      memory: 2Gi
-  service:
-    type: ClusterIP
-    port: 18799
-    targetPort: 18799
-  healthCheck:
-    enabled: true
-    type: "tcp"
-    interval: 10
-    healthyThreshold: 2
-    unhealthyThreshold: 30
-  serviceAccount:
-    create: true
-    name: ""
-    annotations: {}
-  env: {}
+      memory: 4Gi
 
 # ── Element Web (IM UI, optional) ─────────────────────────────────────────
 elementWeb:

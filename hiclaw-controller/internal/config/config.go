@@ -65,6 +65,14 @@ type Config struct {
 	K8sWorkerCPU    string
 	K8sWorkerMemory string
 
+	// Manager deployment (Initializer creates the Manager CR if enabled)
+	ManagerEnabled  bool
+	ManagerModel    string
+	ManagerRuntime  string
+	ManagerImage    string
+	K8sManagerCPU    string
+	K8sManagerMemory string
+
 	// Controller URL (advertised to workers for STS refresh etc.)
 	ControllerURL string
 
@@ -165,6 +173,13 @@ func LoadConfig() *Config {
 		K8sWorkerCPU:    envOrDefault("HICLAW_K8S_WORKER_CPU", "1000m"),
 		K8sWorkerMemory: envOrDefault("HICLAW_K8S_WORKER_MEMORY", "2Gi"),
 
+		ManagerEnabled:   envOrDefault("HICLAW_MANAGER_ENABLED", "true") == "true",
+		ManagerModel:     firstNonEmpty(os.Getenv("HICLAW_MANAGER_MODEL"), envOrDefault("HICLAW_DEFAULT_MODEL", "qwen3.5-plus")),
+		ManagerRuntime:   envOrDefault("HICLAW_MANAGER_RUNTIME", "openclaw"),
+		ManagerImage:     os.Getenv("HICLAW_MANAGER_IMAGE"),
+		K8sManagerCPU:    envOrDefault("HICLAW_K8S_MANAGER_CPU", "2"),
+		K8sManagerMemory: envOrDefault("HICLAW_K8S_MANAGER_MEMORY", "4Gi"),
+
 		ControllerURL: firstNonEmpty(
 			os.Getenv("HICLAW_CONTROLLER_URL"),
 			os.Getenv("HICLAW_ORCHESTRATOR_URL"), // legacy fallback
@@ -241,6 +256,16 @@ func (c *Config) ManagerConfigPath() string {
 // RegistryPath returns the path to the workers-registry.json (embedded mode).
 func (c *Config) RegistryPath() string {
 	return envOrDefault("HICLAW_REGISTRY_PATH", "/root/workers-registry.json")
+}
+
+// ManagerResources returns the resource requirements for the Manager Pod.
+func (c *Config) ManagerResources() *backend.ResourceRequirements {
+	return &backend.ResourceRequirements{
+		CPURequest:    "500m",
+		CPULimit:      c.K8sManagerCPU,
+		MemoryRequest: "1Gi",
+		MemoryLimit:   c.K8sManagerMemory,
+	}
 }
 
 func (c *Config) DockerConfig() backend.DockerConfig {

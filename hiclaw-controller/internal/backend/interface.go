@@ -35,6 +35,15 @@ func ValidRuntime(r string) bool {
 	return r == "" || r == RuntimeOpenClaw || r == RuntimeCopaw
 }
 
+// ResourceRequirements specifies CPU/memory requests and limits for a container.
+// When nil on CreateRequest, backends use their configured defaults.
+type ResourceRequirements struct {
+	CPURequest    string
+	CPULimit      string
+	MemoryRequest string
+	MemoryLimit   string
+}
+
 // CreateRequest holds parameters for creating a worker container/instance.
 type CreateRequest struct {
 	Name       string            `json:"name"`
@@ -54,6 +63,10 @@ type CreateRequest struct {
 	ServiceAccountName string `json:"-"`
 	AuthToken          string `json:"-"`
 	AuthAudience       string `json:"-"`
+
+	// Resources overrides default resource limits for this container.
+	// nil = use backend defaults (e.g. K8sConfig.WorkerCPU/WorkerMemory).
+	Resources *ResourceRequirements `json:"-"`
 }
 
 // Deployment modes returned by backends.

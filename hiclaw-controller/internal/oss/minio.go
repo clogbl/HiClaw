@@ -149,6 +149,16 @@ func (c *MinIOClient) ListObjects(ctx context.Context, prefix string) ([]string,
 	return names, nil
 }
 
+// EnsureBucket creates the configured bucket if it does not already exist.
+func (c *MinIOClient) EnsureBucket(ctx context.Context) error {
+	if err := c.ensureAlias(ctx); err != nil {
+		return err
+	}
+	target := c.config.Alias + "/" + c.config.Bucket
+	_, err := c.runMC(ctx, "mb", target, "--ignore-existing")
+	return err
+}
+
 func (c *MinIOClient) runMC(ctx context.Context, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, c.config.MCBinary, args...)
 	var stdout, stderr bytes.Buffer

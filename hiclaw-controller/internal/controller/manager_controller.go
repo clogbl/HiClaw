@@ -20,10 +20,11 @@ import (
 type ManagerReconciler struct {
 	client.Client
 
-	Provisioner *service.Provisioner
-	Deployer    *service.Deployer
-	Backend     *backend.Registry
-	EnvBuilder  *service.WorkerEnvBuilder
+	Provisioner      *service.Provisioner
+	Deployer         *service.Deployer
+	Backend          *backend.Registry
+	EnvBuilder       *service.WorkerEnvBuilder
+	ManagerResources *backend.ResourceRequirements
 }
 
 func (r *ManagerReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
@@ -131,6 +132,7 @@ func (r *ManagerReconciler) handleCreate(ctx context.Context, m *v1beta1.Manager
 				Runtime:            m.Spec.Runtime,
 				Env:                managerEnv,
 				ServiceAccountName: saName,
+				Resources:          r.ManagerResources,
 			}
 			if wb.Name() != "k8s" {
 				token, err := r.Provisioner.RequestManagerSAToken(ctx, managerName)
