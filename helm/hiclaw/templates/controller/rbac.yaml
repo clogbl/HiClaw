@@ -71,6 +71,15 @@ metadata:
     {{- include "hiclaw.component.labels" (dict "root" . "component" "controller") | nindent 4 }}
 rules: []
 ---
+{{- /* ClusterRole for Manager ServiceAccount (same pattern as hiclaw-worker). */}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: hiclaw-manager
+  labels:
+    {{- include "hiclaw.component.labels" (dict "root" . "component" "controller") | nindent 4 }}
+rules: []
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:

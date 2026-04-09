@@ -99,7 +99,7 @@ func (k *K8sBackend) Available(_ context.Context) bool {
 }
 
 func (k *K8sBackend) Create(ctx context.Context, req CreateRequest) (*WorkerResult, error) {
-	podName := k.workerPodName(req.Name)
+	podName := k.podName(req.NamePrefix, req.Name)
 	if _, err := k.client.Pods(k.config.Namespace).Get(ctx, podName, metav1.GetOptions{}); err == nil {
 		return nil, fmt.Errorf("%w: pod %q", ErrConflict, podName)
 	} else if !apierrors.IsNotFound(err) {
@@ -228,12 +228,18 @@ func (k *K8sBackend) Create(ctx context.Context, req CreateRequest) (*WorkerResu
 	}
 
 	podLabels := map[string]string{
-		"app":               "hiclaw-worker",
-		"hiclaw.io/worker":  req.Name,
 		"hiclaw.io/runtime": defaultRuntime(req.Runtime),
 	}
 	for k, v := range req.Labels {
 		podLabels[k] = v
+	}
+	if podLabels["app"] == "" {
+		podLabels["app"] = "hiclaw-worker"
+	}
+	if _, hasManager := podLabels["hiclaw.io/manager"]; !hasManager {
+		if podLabels["hiclaw.io/worker"] == "" {
+			podLabels["hiclaw.io/worker"] = req.Name
+		}
 	}
 
 	pod := &corev1.Pod{
@@ -337,6 +343,13 @@ func (k *K8sBackend) List(ctx context.Context) ([]WorkerResult, error) {
 		})
 	}
 	return results, nil
+}
+
+func (k *K8sBackend) podName(prefix, name string) string {
+	if prefix != "" {
+		return prefix + name
+	}
+	return k.containerPrefix + name
 }
 
 func (k *K8sBackend) workerPodName(name string) string {

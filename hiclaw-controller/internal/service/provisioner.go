@@ -412,8 +412,9 @@ type ManagerProvisionResult struct {
 func (p *Provisioner) ProvisionManager(ctx context.Context, req ManagerProvisionRequest) (*ManagerProvisionResult, error) {
 	logger := log.FromContext(ctx)
 	managerName := req.Name
+	matrixUsername := "manager"
 	consumerName := "manager"
-	managerMatrixID := p.matrix.UserID(managerName)
+	managerMatrixID := p.matrix.UserID(matrixUsername)
 	adminMatrixID := p.matrix.UserID(p.adminUser)
 
 	// Step 1: Load or generate credentials
@@ -431,10 +432,10 @@ func (p *Provisioner) ProvisionManager(ctx context.Context, req ManagerProvision
 		}
 	}
 
-	// Step 2: Register Matrix account
-	logger.Info("registering Manager Matrix account", "name", managerName)
+	// Step 2: Register Matrix account (always "manager", matching container script)
+	logger.Info("registering Manager Matrix account", "matrixUser", matrixUsername)
 	userCreds, err := p.matrix.EnsureUser(ctx, matrix.EnsureUserRequest{
-		Username: managerName,
+		Username: matrixUsername,
 		Password: creds.MatrixPassword,
 	})
 	if err != nil {

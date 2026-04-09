@@ -39,7 +39,8 @@ type Client interface {
 	EnsureServiceSource(ctx context.Context, name, domain string, port int) error
 
 	// EnsureRoute creates a route mapping domains to a backend service.
-	EnsureRoute(ctx context.Context, name string, domains []string, serviceName string, port int) error
+	// pathPrefix is the URL prefix to match (e.g. "/" or "/_matrix").
+	EnsureRoute(ctx context.Context, name string, domains []string, serviceName string, port int, pathPrefix string) error
 
 	// DeleteRoute removes a route by name. No-op if not found.
 	DeleteRoute(ctx context.Context, name string) error

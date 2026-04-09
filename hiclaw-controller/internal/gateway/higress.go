@@ -312,7 +312,7 @@ func (c *HigressClient) ExposePort(ctx context.Context, req PortExposeRequest) e
 	if err := c.ensureServiceSource(ctx, svcSrc, dnsHost, req.Port); err != nil {
 		return fmt.Errorf("expose port %d: %w", req.Port, err)
 	}
-	if err := c.ensureRoute(ctx, routeN, []string{domain}, svcSrc+".dns", req.Port); err != nil {
+	if err := c.ensureRoute(ctx, routeN, []string{domain}, svcSrc+".dns", req.Port, "/"); err != nil {
 		return fmt.Errorf("expose port %d: %w", req.Port, err)
 	}
 	return nil
@@ -338,8 +338,8 @@ func (c *HigressClient) EnsureServiceSource(ctx context.Context, name, domain st
 	return c.ensureServiceSource(ctx, name, domain, port)
 }
 
-func (c *HigressClient) EnsureRoute(ctx context.Context, name string, domains []string, serviceName string, port int) error {
-	return c.ensureRoute(ctx, name, domains, serviceName, port)
+func (c *HigressClient) EnsureRoute(ctx context.Context, name string, domains []string, serviceName string, port int, pathPrefix string) error {
+	return c.ensureRoute(ctx, name, domains, serviceName, port, pathPrefix)
 }
 
 func (c *HigressClient) DeleteRoute(ctx context.Context, name string) error {
@@ -439,11 +439,14 @@ func (c *HigressClient) ensureServiceSource(ctx context.Context, name, dnsDomain
 	return nil
 }
 
-func (c *HigressClient) ensureRoute(ctx context.Context, name string, domains []string, serviceName string, port int) error {
+func (c *HigressClient) ensureRoute(ctx context.Context, name string, domains []string, serviceName string, port int, pathPrefix string) error {
+	if pathPrefix == "" {
+		pathPrefix = "/"
+	}
 	body := map[string]interface{}{
 		"name":    name,
 		"domains": domains,
-		"path":    map[string]interface{}{"matchType": "PRE", "matchValue": "/", "caseSensitive": false},
+		"path":    map[string]interface{}{"matchType": "PRE", "matchValue": pathPrefix, "caseSensitive": false},
 		"services": []map[string]interface{}{
 			{"name": serviceName, "port": port, "weight": 100},
 		},

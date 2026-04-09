@@ -170,8 +170,8 @@ func (i *Initializer) initGatewayRoutes(ctx context.Context) error {
 			logger.Error(err, "failed to register Tuwunel service source (non-fatal)")
 		}
 
-		// Matrix Homeserver route (/_matrix/* → Tuwunel)
-		if err := i.Gateway.EnsureRoute(ctx, "matrix-homeserver", nil, "tuwunel.dns", port); err != nil {
+		// Matrix Homeserver routes (/_matrix/*, /_tuwunel/* → Tuwunel)
+		if err := i.Gateway.EnsureRoute(ctx, "matrix-homeserver", nil, "tuwunel.dns", port, "/_matrix"); err != nil {
 			logger.Error(err, "failed to create Matrix route (non-fatal)")
 		}
 	}
@@ -185,7 +185,7 @@ func (i *Initializer) initGatewayRoutes(ctx context.Context) error {
 			if err := i.Gateway.EnsureServiceSource(ctx, "element-web", host, port); err != nil {
 				logger.Error(err, "failed to register Element Web service source (non-fatal)")
 			}
-			if err := i.Gateway.EnsureRoute(ctx, "element-web", nil, "element-web.dns", port); err != nil {
+			if err := i.Gateway.EnsureRoute(ctx, "element-web", nil, "element-web.dns", port, "/"); err != nil {
 				logger.Error(err, "failed to create Element Web route (non-fatal)")
 			}
 		}

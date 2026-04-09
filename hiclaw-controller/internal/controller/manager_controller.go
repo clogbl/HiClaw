@@ -9,12 +9,16 @@ import (
 	authpkg "github.com/hiclaw/hiclaw-controller/internal/auth"
 	"github.com/hiclaw/hiclaw-controller/internal/backend"
 	"github.com/hiclaw/hiclaw-controller/internal/service"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
+
+const managerPodPrefix = "hiclaw-manager-"
 
 // ManagerReconciler reconciles Manager resources.
 type ManagerReconciler struct {
@@ -128,6 +132,7 @@ func (r *ManagerReconciler) handleCreate(ctx context.Context, m *v1beta1.Manager
 			saName := authpkg.SAName(authpkg.RoleManager, managerName)
 			createReq := backend.CreateRequest{
 				Name:               managerName,
+				NamePrefix:         managerPodPrefix,
 				Image:              m.Spec.Image,
 				Runtime:            m.Spec.Runtime,
 				Env:                managerEnv,
@@ -243,13 +248,12 @@ func (r *ManagerReconciler) handleDelete(ctx context.Context, m *v1beta1.Manager
 		logger.Error(err, "deprovision failed (non-fatal)")
 	}
 
-	// Delete container
-	if r.Backend != nil {
-		if wb := r.Backend.DetectWorkerBackend(ctx); wb != nil {
-			if err := wb.Delete(ctx, managerName); err != nil {
-				logger.Error(err, "failed to delete manager container (may already be removed)")
-			}
-		}
+	// Delete manager pod by exact name (bypasses backend's default worker prefix)
+	managerPod := &corev1.Pod{}
+	managerPod.Name = managerPodPrefix + managerName
+	managerPod.Namespace = m.Namespace
+	if err := r.Delete(ctx, managerPod); err != nil && !apierrors.IsNotFound(err) {
+		logger.Error(err, "failed to delete manager pod (may already be removed)")
 	}
 
 	// Clean up OSS data

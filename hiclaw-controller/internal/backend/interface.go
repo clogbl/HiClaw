@@ -68,9 +68,14 @@ type CreateRequest struct {
 	// nil = use backend defaults (e.g. K8sConfig.WorkerCPU/WorkerMemory).
 	Resources *ResourceRequirements `json:"-"`
 
+	// NamePrefix overrides the backend's default container/pod name prefix.
+	// When set, pod name = NamePrefix + Name instead of containerPrefix + Name.
+	NamePrefix string `json:"-"`
+
 	// Labels are additional K8s labels merged into the Pod metadata.
-	// Backend-specific defaults (app, hiclaw.io/worker, hiclaw.io/runtime)
-	// are always set; these labels are additive.
+	// If "app" is present, it overrides the default "hiclaw-worker".
+	// If "hiclaw.io/worker" should be omitted (e.g. for Manager pods),
+	// set an alternative identity label (e.g. "hiclaw.io/manager").
 	Labels map[string]string `json:"-"`
 }
 
