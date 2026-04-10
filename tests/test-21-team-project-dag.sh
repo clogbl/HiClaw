@@ -72,7 +72,7 @@ log_pass "SOUL.md files prepared for all team members"
 # ============================================================
 log_section "Create Team"
 
-CREATE_OUTPUT=$(exec_in_manager hiclaw create team \
+CREATE_OUTPUT=$(exec_in_agent hiclaw create team \
     --name "${TEST_TEAM}" \
     --leader-name "${TEST_LEADER}" \
     --workers "${TEST_W1},${TEST_W2}" 2>&1)
@@ -87,7 +87,7 @@ fi
 # Wait for TeamReconciler to finish (async reconcile)
 log_info "Waiting for team to become Active..."
 for i in $(seq 1 24); do
-    PHASE=$(exec_in_manager hiclaw get teams "${TEST_TEAM}" -o json 2>/dev/null | jq -r '.phase // empty')
+    PHASE=$(exec_in_agent hiclaw get teams "${TEST_TEAM}" -o json 2>/dev/null | jq -r '.phase // empty')
     [ "${PHASE}" = "Active" ] && break
     sleep 5
 done
@@ -98,13 +98,13 @@ else
 fi
 
 # Extract room IDs from controller REST API
-TEAM_JSON=$(exec_in_manager hiclaw get teams "${TEST_TEAM}" -o json 2>/dev/null)
+TEAM_JSON=$(exec_in_agent hiclaw get teams "${TEST_TEAM}" -o json 2>/dev/null)
 TEAM_ROOM=$(echo "${TEAM_JSON}" | jq -r '.teamRoomID // empty')
 LEADER_DM=$(echo "${TEAM_JSON}" | jq -r '.leaderDMRoomID // empty')
 
-LEADER_ROOM=$(exec_in_manager hiclaw get workers "${TEST_LEADER}" -o json 2>/dev/null | jq -r '.roomID // empty')
-W1_ROOM=$(exec_in_manager hiclaw get workers "${TEST_W1}" -o json 2>/dev/null | jq -r '.roomID // empty')
-W2_ROOM=$(exec_in_manager hiclaw get workers "${TEST_W2}" -o json 2>/dev/null | jq -r '.roomID // empty')
+LEADER_ROOM=$(exec_in_agent hiclaw get workers "${TEST_LEADER}" -o json 2>/dev/null | jq -r '.roomID // empty')
+W1_ROOM=$(exec_in_agent hiclaw get workers "${TEST_W1}" -o json 2>/dev/null | jq -r '.roomID // empty')
+W2_ROOM=$(exec_in_agent hiclaw get workers "${TEST_W2}" -o json 2>/dev/null | jq -r '.roomID // empty')
 
 log_info "Leader Room: ${LEADER_ROOM}"
 log_info "Leader DM: ${LEADER_DM}"

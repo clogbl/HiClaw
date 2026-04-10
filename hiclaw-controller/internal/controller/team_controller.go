@@ -158,16 +158,22 @@ func (r *TeamReconciler) handleCreate(ctx context.Context, t *v1beta1.Team) (rec
 		}
 	}
 
-	// --- Step 6: Legacy teams-registry ---
+	// --- Step 6: Legacy teams-registry + Manager groupAllowFrom ---
 	if r.Legacy != nil && r.Legacy.Enabled() {
 		if err := r.Legacy.UpdateTeamsRegistry(service.TeamRegistryEntry{
-			Name:       t.Name,
-			Leader:     t.Spec.Leader.Name,
-			Workers:    workerNames,
-			TeamRoomID: rooms.TeamRoomID,
-			Admin:      teamAdminRegistryEntry(t.Spec.Admin),
+			Name:           t.Name,
+			Leader:         t.Spec.Leader.Name,
+			Workers:        workerNames,
+			TeamRoomID:     rooms.TeamRoomID,
+			LeaderDMRoomID: rooms.LeaderDMRoomID,
+			Admin:          teamAdminRegistryEntry(t.Spec.Admin),
 		}); err != nil {
 			logger.Error(err, "teams-registry update failed (non-fatal)")
+		}
+		// Add team leader to Manager's groupAllowFrom so Manager can receive leader messages
+		leaderMatrixID := r.Legacy.MatrixUserID(t.Spec.Leader.Name)
+		if err := r.Legacy.UpdateManagerGroupAllowFrom(leaderMatrixID, true); err != nil {
+			logger.Error(err, "failed to update Manager groupAllowFrom for team leader (non-fatal)")
 		}
 	}
 

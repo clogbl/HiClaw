@@ -232,12 +232,13 @@ func (l *LegacyCompat) RemoveFromWorkersRegistry(workerName string) error {
 
 // TeamRegistryEntry describes a team entry in teams-registry.json.
 type TeamRegistryEntry struct {
-	Name       string          `json:"-"`
-	Leader     string          `json:"leader"`
-	Workers    []string        `json:"workers"`
-	TeamRoomID string          `json:"team_room_id"`
-	Admin      *TeamAdminEntry `json:"admin,omitempty"`
-	CreatedAt  string          `json:"created_at,omitempty"`
+	Name            string          `json:"-"`
+	Leader          string          `json:"leader"`
+	Workers         []string        `json:"workers"`
+	TeamRoomID      string          `json:"team_room_id"`
+	LeaderDMRoomID  string          `json:"leader_dm_room_id,omitempty"`
+	Admin           *TeamAdminEntry `json:"admin,omitempty"`
+	CreatedAt       string          `json:"created_at,omitempty"`
 }
 
 type TeamAdminEntry struct {

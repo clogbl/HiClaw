@@ -164,15 +164,15 @@ func (d *Deployer) DeployWorkerConfig(ctx context.Context, req WorkerDeployReque
 	}
 
 	// --- SOUL.md ---
-	// Always push from local agent dir (authoritative after DeployPackage).
-	// Fall back to inline soul or generated default on create.
+	// Priority: inline spec (user intent) > local file (from package) > generated default.
+	// Inline spec is read directly from memory to avoid local file race with background mc mirror.
 	soulPath := filepath.Join(localAgentDir, "SOUL.md")
-	if soulData, err := os.ReadFile(soulPath); err == nil {
-		if err := d.oss.PutObject(ctx, agentPrefix+"/SOUL.md", soulData); err != nil {
+	if req.Spec.Soul != "" {
+		if err := d.oss.PutObject(ctx, agentPrefix+"/SOUL.md", []byte(req.Spec.Soul)); err != nil {
 			logger.Error(err, "SOUL.md push failed (non-fatal)")
 		}
-	} else if req.Spec.Soul != "" {
-		if err := d.oss.PutObject(ctx, agentPrefix+"/SOUL.md", []byte(req.Spec.Soul)); err != nil {
+	} else if soulData, err := os.ReadFile(soulPath); err == nil {
+		if err := d.oss.PutObject(ctx, agentPrefix+"/SOUL.md", soulData); err != nil {
 			logger.Error(err, "SOUL.md push failed (non-fatal)")
 		}
 	} else if !req.IsUpdate {
@@ -207,7 +207,7 @@ func (d *Deployer) DeployWorkerConfig(ctx context.Context, req WorkerDeployReque
 	}
 
 	// --- AGENTS.md: merge builtin section + inject coordination context ---
-	if err := d.prepareAndPushAgentsMD(ctx, req.Name, agentPrefix, req.Role, req.TeamName, req.TeamLeaderName, req.TeamAdminMatrixID); err != nil {
+	if err := d.prepareAndPushAgentsMD(ctx, req.Name, agentPrefix, req.Role, req.TeamName, req.TeamLeaderName, req.TeamAdminMatrixID, req.Spec.Agents); err != nil {
 		logger.Error(err, "AGENTS.md prepare failed (non-fatal)")
 	}
 
@@ -339,16 +339,22 @@ func (d *Deployer) DeployManagerConfig(ctx context.Context, req ManagerDeployReq
 
 // prepareAndPushAgentsMD merges the builtin AGENTS.md section and injects
 // coordination context in a single OSS read-write cycle.
-func (d *Deployer) prepareAndPushAgentsMD(ctx context.Context, workerName, agentPrefix, role, teamName, teamLeaderName, teamAdminMatrixID string) error {
+func (d *Deployer) prepareAndPushAgentsMD(ctx context.Context, workerName, agentPrefix, role, teamName, teamLeaderName, teamAdminMatrixID, inlineAgents string) error {
 	builtinPath := filepath.Join(d.builtinAgentDir(role), "AGENTS.md")
 	builtinContent, err := os.ReadFile(builtinPath)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("read builtin AGENTS.md: %w", err)
 	}
 
-	existing, _ := d.oss.GetObject(ctx, agentPrefix+"/AGENTS.md")
-
-	content := string(existing)
+	// Priority: inline spec (user intent) > OSS (from package).
+	// Read inline directly from memory to avoid local file race with background mc mirror.
+	var content string
+	if inlineAgents != "" {
+		content = inlineAgents
+	} else {
+		existing, _ := d.oss.GetObject(ctx, agentPrefix+"/AGENTS.md")
+		content = string(existing)
+	}
 	if len(builtinContent) > 0 {
 		content = agentconfig.MergeBuiltinSection(content, string(builtinContent))
 	}
