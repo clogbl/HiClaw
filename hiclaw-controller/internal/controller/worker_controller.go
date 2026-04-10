@@ -92,6 +92,7 @@ func (r *WorkerReconciler) handleCreate(ctx context.Context, w *v1beta1.Worker) 
 	role := w.Annotations["hiclaw.io/role"]
 	teamName := w.Annotations["hiclaw.io/team"]
 	teamLeaderName := w.Annotations["hiclaw.io/team-leader"]
+	teamAdminMatrixID := w.Annotations["hiclaw.io/team-admin-id"]
 	isTeamWorker := teamLeaderName != ""
 
 	// --- Phase 1: Package + inline configs ---
@@ -116,15 +117,16 @@ func (r *WorkerReconciler) handleCreate(ctx context.Context, w *v1beta1.Worker) 
 
 	// --- Phase 3: Deploy configuration ---
 	if err := r.Deployer.DeployWorkerConfig(ctx, service.WorkerDeployRequest{
-		Name:           workerName,
-		Spec:           w.Spec,
-		Role:           roleForAnnotations(role, teamLeaderName),
-		TeamName:       teamName,
-		TeamLeaderName: teamLeaderName,
-		MatrixToken:    provResult.MatrixToken,
-		GatewayKey:     provResult.GatewayKey,
-		MatrixPassword: provResult.MatrixPassword,
-		AuthorizedMCPs: provResult.AuthorizedMCPs,
+		Name:              workerName,
+		Spec:              w.Spec,
+		Role:              roleForAnnotations(role, teamLeaderName),
+		TeamName:          teamName,
+		TeamLeaderName:    teamLeaderName,
+		MatrixToken:       provResult.MatrixToken,
+		GatewayKey:        provResult.GatewayKey,
+		MatrixPassword:    provResult.MatrixPassword,
+		AuthorizedMCPs:    provResult.AuthorizedMCPs,
+		TeamAdminMatrixID: teamAdminMatrixID,
 	}); err != nil {
 		return r.failCreate(ctx, w, err.Error())
 	}
@@ -224,6 +226,7 @@ func (r *WorkerReconciler) handleUpdate(ctx context.Context, w *v1beta1.Worker) 
 	role := w.Annotations["hiclaw.io/role"]
 	teamName := w.Annotations["hiclaw.io/team"]
 	teamLeaderName := w.Annotations["hiclaw.io/team-leader"]
+	teamAdminMatrixID := w.Annotations["hiclaw.io/team-admin-id"]
 
 	w.Status.Phase = "Updating"
 	w.Status.Message = "Updating worker configuration (memory preserved, skills merged)"
@@ -255,16 +258,17 @@ func (r *WorkerReconciler) handleUpdate(ctx context.Context, w *v1beta1.Worker) 
 
 	// --- Phase 3: Deploy configuration ---
 	if err := r.Deployer.DeployWorkerConfig(ctx, service.WorkerDeployRequest{
-		Name:           workerName,
-		Spec:           w.Spec,
-		Role:           roleForAnnotations(role, teamLeaderName),
-		TeamName:       teamName,
-		TeamLeaderName: teamLeaderName,
-		MatrixToken:    refreshResult.MatrixToken,
-		GatewayKey:     refreshResult.GatewayKey,
-		MatrixPassword: refreshResult.MatrixPassword,
-		AuthorizedMCPs: authorizedMCPs,
-		IsUpdate:       true,
+		Name:              workerName,
+		Spec:              w.Spec,
+		Role:              roleForAnnotations(role, teamLeaderName),
+		TeamName:          teamName,
+		TeamLeaderName:    teamLeaderName,
+		MatrixToken:       refreshResult.MatrixToken,
+		GatewayKey:        refreshResult.GatewayKey,
+		MatrixPassword:    refreshResult.MatrixPassword,
+		AuthorizedMCPs:    authorizedMCPs,
+		TeamAdminMatrixID: teamAdminMatrixID,
+		IsUpdate:          true,
 	}); err != nil {
 		return r.failUpdate(ctx, w, err.Error())
 	}

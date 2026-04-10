@@ -77,6 +77,10 @@ func (c *MinIOClient) GetObject(ctx context.Context, key string) ([]byte, error)
 	}
 	out, err := c.runMC(ctx, "cat", c.fullPath(key))
 	if err != nil {
+		if strings.Contains(err.Error(), "Object does not exist") ||
+			strings.Contains(err.Error(), "exit status") {
+			return nil, os.ErrNotExist
+		}
 		return nil, err
 	}
 	return []byte(out), nil

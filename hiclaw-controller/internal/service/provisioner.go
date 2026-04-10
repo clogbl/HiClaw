@@ -206,13 +206,6 @@ func (p *Provisioner) ProvisionWorker(ctx context.Context, req WorkerProvisionRe
 	creds.RoomID = roomInfo.RoomID
 	logger.Info("Matrix room ready", "roomID", creds.RoomID, "created", roomInfo.Created)
 
-	// Manager leaves team worker rooms (delegation boundary)
-	if isTeamWorker && roomInfo.Created {
-		if err := p.matrix.LeaveRoom(ctx, creds.RoomID, ""); err != nil {
-			logger.Error(err, "failed to leave team worker room (non-fatal)")
-		}
-	}
-
 	// Persist credentials (including room ID) for retry idempotency
 	if err := p.creds.Save(ctx, workerName, creds); err != nil {
 		logger.Error(err, "failed to persist credentials (non-fatal)")

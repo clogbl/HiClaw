@@ -328,14 +328,24 @@ func (r *TeamReconciler) buildLeaderCR(t *v1beta1.Team) *v1beta1.Worker {
 	}
 	policy = appendGroupAllowExtra(policy, allWorkerNames...)
 
+	if t.Spec.Admin != nil && t.Spec.Admin.Name != "" {
+		policy = appendGroupAllowExtra(policy, t.Spec.Admin.Name)
+		policy = appendDmAllowExtra(policy, t.Spec.Admin.Name)
+	}
+
+	annotations := map[string]string{
+		"hiclaw.io/role": "team_leader",
+		"hiclaw.io/team": t.Name,
+	}
+	if t.Spec.Admin != nil && t.Spec.Admin.MatrixUserID != "" {
+		annotations["hiclaw.io/team-admin-id"] = t.Spec.Admin.MatrixUserID
+	}
+
 	return &v1beta1.Worker{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      t.Spec.Leader.Name,
-			Namespace: t.Namespace,
-			Annotations: map[string]string{
-				"hiclaw.io/role": "team_leader",
-				"hiclaw.io/team": t.Name,
-			},
+			Name:        t.Spec.Leader.Name,
+			Namespace:   t.Namespace,
+			Annotations: annotations,
 			Labels: map[string]string{
 				"hiclaw.io/team": t.Name,
 				"hiclaw.io/role": "team_leader",
@@ -360,9 +370,16 @@ func (r *TeamReconciler) buildWorkerCR(t *v1beta1.Team, w v1beta1.TeamWorkerSpec
 	if leaderName != "" {
 		annotations["hiclaw.io/team-leader"] = leaderName
 	}
+	if t.Spec.Admin != nil && t.Spec.Admin.MatrixUserID != "" {
+		annotations["hiclaw.io/team-admin-id"] = t.Spec.Admin.MatrixUserID
+	}
 
 	policy := mergeChannelPolicy(t.Spec.ChannelPolicy, w.ChannelPolicy)
 	policy = appendGroupAllowExtra(policy, leaderName)
+
+	if t.Spec.Admin != nil && t.Spec.Admin.Name != "" {
+		policy = appendGroupAllowExtra(policy, t.Spec.Admin.Name)
+	}
 
 	peerMentions := t.Spec.PeerMentions == nil || *t.Spec.PeerMentions
 	if peerMentions {
@@ -513,6 +530,27 @@ func appendGroupAllowExtra(policy *v1beta1.ChannelPolicySpec, names ...string) *
 	for _, n := range names {
 		if n != "" && !existing[n] {
 			policy.GroupAllowExtra = append(policy.GroupAllowExtra, n)
+			existing[n] = true
+		}
+	}
+	return policy
+}
+
+// appendDmAllowExtra adds names to DmAllowExtra, creating the policy if nil.
+func appendDmAllowExtra(policy *v1beta1.ChannelPolicySpec, names ...string) *v1beta1.ChannelPolicySpec {
+	if len(names) == 0 {
+		return policy
+	}
+	if policy == nil {
+		policy = &v1beta1.ChannelPolicySpec{}
+	}
+	existing := make(map[string]bool, len(policy.DmAllowExtra))
+	for _, v := range policy.DmAllowExtra {
+		existing[v] = true
+	}
+	for _, n := range names {
+		if n != "" && !existing[n] {
+			policy.DmAllowExtra = append(policy.DmAllowExtra, n)
 			existing[n] = true
 		}
 	}

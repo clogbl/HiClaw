@@ -29,6 +29,8 @@ type WorkerDeployRequest struct {
 	MatrixPassword string
 	AuthorizedMCPs []string
 
+	TeamAdminMatrixID string
+
 	IsUpdate bool
 }
 
@@ -112,7 +114,11 @@ func (d *Deployer) WriteInlineConfigs(name string, spec v1beta1.WorkerSpec) erro
 		return nil
 	}
 	agentDir := fmt.Sprintf("%s/%s", d.agentFSDir, name)
-	return executor.WriteInlineConfigs(agentDir, spec.Runtime, spec.Identity, spec.Soul, spec.Agents)
+	if err := executor.WriteInlineConfigs(agentDir, spec.Runtime, spec.Identity, spec.Soul, spec.Agents); err != nil {
+		return err
+	}
+	log.Log.Info("inline configs written", "name", name)
+	return nil
 }
 
 // DeployWorkerConfig generates and pushes all configuration files to OSS:
@@ -201,7 +207,7 @@ func (d *Deployer) DeployWorkerConfig(ctx context.Context, req WorkerDeployReque
 	}
 
 	// --- AGENTS.md: merge builtin section + inject coordination context ---
-	if err := d.prepareAndPushAgentsMD(ctx, req.Name, agentPrefix, req.Role, req.TeamName, req.TeamLeaderName); err != nil {
+	if err := d.prepareAndPushAgentsMD(ctx, req.Name, agentPrefix, req.Role, req.TeamName, req.TeamLeaderName, req.TeamAdminMatrixID); err != nil {
 		logger.Error(err, "AGENTS.md prepare failed (non-fatal)")
 	}
 
@@ -333,7 +339,7 @@ func (d *Deployer) DeployManagerConfig(ctx context.Context, req ManagerDeployReq
 
 // prepareAndPushAgentsMD merges the builtin AGENTS.md section and injects
 // coordination context in a single OSS read-write cycle.
-func (d *Deployer) prepareAndPushAgentsMD(ctx context.Context, workerName, agentPrefix, role, teamName, teamLeaderName string) error {
+func (d *Deployer) prepareAndPushAgentsMD(ctx context.Context, workerName, agentPrefix, role, teamName, teamLeaderName, teamAdminMatrixID string) error {
 	builtinPath := filepath.Join(d.builtinAgentDir(role), "AGENTS.md")
 	builtinContent, err := os.ReadFile(builtinPath)
 	if err != nil && !os.IsNotExist(err) {
@@ -352,6 +358,7 @@ func (d *Deployer) prepareAndPushAgentsMD(ctx context.Context, workerName, agent
 		MatrixDomain:   d.matrixDomain,
 		TeamName:       teamName,
 		TeamLeaderName: teamLeaderName,
+		TeamAdminID:    teamAdminMatrixID,
 	}
 	if role == "team_leader" {
 		coordCtx.Role = "team_leader"

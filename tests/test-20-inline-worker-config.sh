@@ -297,6 +297,30 @@ else
     log_fail "ZIP import failed for override test"
 fi
 
+# Wait for initial worker creation to complete before applying override
+log_info "Waiting for initial worker creation from ZIP import..."
+RECONCILE_TIMEOUT=120
+RECONCILE_ELAPSED=0
+ZIP_WORKER_CREATED=false
+
+while [ "${RECONCILE_ELAPSED}" -lt "${RECONCILE_TIMEOUT}" ]; do
+    if exec_in_manager cat /var/log/hiclaw/hiclaw-controller-error.log 2>/dev/null | grep -q "worker created.*${TEST_WORKER_OVERRIDE}"; then
+        ZIP_WORKER_CREATED=true
+        break
+    fi
+    sleep 5
+    RECONCILE_ELAPSED=$((RECONCILE_ELAPSED + 5))
+    printf "\r[TEST INFO] Waiting for ZIP worker creation... (%ds/%ds)" "${RECONCILE_ELAPSED}" "${RECONCILE_TIMEOUT}"
+done
+echo ""
+
+if [ "${ZIP_WORKER_CREATED}" = true ]; then
+    log_pass "ZIP worker created (took ~${RECONCILE_ELAPSED}s)"
+else
+    log_fail "ZIP worker not created within ${RECONCILE_TIMEOUT}s"
+    exec_in_manager cat /var/log/hiclaw/hiclaw-controller-error.log 2>/dev/null | grep "${TEST_WORKER_OVERRIDE}" | tail -5
+fi
+
 # Discover the package URI from MinIO packages directory
 PKG_FILE=$(exec_in_manager bash -c "mc ls '${STORAGE_PREFIX}/hiclaw-config/packages/' 2>/dev/null | grep '${TEST_WORKER_OVERRIDE}' | awk '{print \$NF}'" | head -1)
 PKG_URI="oss://hiclaw-config/packages/${PKG_FILE}"
@@ -332,15 +356,15 @@ else
     log_fail "Failed to apply YAML with package + inline override"
 fi
 
-# Wait for reconcile
-log_info "Waiting for controller to reconcile override worker..."
+# Wait for the update reconcile (ZIP import already created the worker; override apply triggers update)
+log_info "Waiting for controller to reconcile override worker update..."
 RECONCILE_TIMEOUT=120
 RECONCILE_ELAPSED=0
-WORKER_CREATED=false
+WORKER_UPDATED=false
 
 while [ "${RECONCILE_ELAPSED}" -lt "${RECONCILE_TIMEOUT}" ]; do
-    if exec_in_manager cat /var/log/hiclaw/hiclaw-controller-error.log 2>/dev/null | grep -q "worker created.*${TEST_WORKER_OVERRIDE}"; then
-        WORKER_CREATED=true
+    if exec_in_manager cat /var/log/hiclaw/hiclaw-controller-error.log 2>/dev/null | grep -q "worker updated.*${TEST_WORKER_OVERRIDE}"; then
+        WORKER_UPDATED=true
         break
     fi
     sleep 5
@@ -349,10 +373,10 @@ while [ "${RECONCILE_ELAPSED}" -lt "${RECONCILE_TIMEOUT}" ]; do
 done
 echo ""
 
-if [ "${WORKER_CREATED}" = true ]; then
-    log_pass "Override worker created (took ~${RECONCILE_ELAPSED}s)"
+if [ "${WORKER_UPDATED}" = true ]; then
+    log_pass "Override worker updated (took ~${RECONCILE_ELAPSED}s)"
 else
-    log_fail "Override worker not created within ${RECONCILE_TIMEOUT}s"
+    log_fail "Override worker not updated within ${RECONCILE_TIMEOUT}s"
     exec_in_manager cat /var/log/hiclaw/hiclaw-controller-error.log 2>/dev/null | grep "${TEST_WORKER_OVERRIDE}" | tail -5
 fi
 
