@@ -6,3 +6,5 @@ Record image-affecting changes to `manager/`, `worker/`, `openclaw-base/` here b
 
 - feat(manager): add Team Leader heartbeat and worker lifecycle builtins for team-scoped sleep/wake coordination (unreleased)
 
+- fix(manager): make find-skills use deterministic script paths in worker/copaw SKILL.md, render canonical install/search commands from `hiclaw-find-skill.sh`, and treat "import/install xxx skill from market" as a direct install trigger
+

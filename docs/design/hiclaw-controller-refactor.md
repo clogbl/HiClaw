@@ -676,31 +676,33 @@ type ManagerStatus struct {
 
 ### 6.2 DebugWorker CRD
 
+DebugWorker 本质上是一个普通 Worker，使用相同的基础镜像和运行时，只是额外注入了 debug 专用的技能（debug-analysis）和配置（targets 工作目录挂载、matrixCredential 消息导出）。DebugWorker CRD 是一个更高层的抽象，Reconciler 内部会创建一个标准的 Worker 来承载。
+
 ```yaml
 apiVersion: hiclaw.io/v1beta1
 kind: DebugWorker
 metadata:
   name: debug-alpha-team
 spec:
-  target:                            # 调试目标
-    type: team                       # team | worker
-    name: alpha-team                 # Team 或 Worker 名称
-  hiclawVersion: v1.1.0             # 内置的 hiclaw 代码版本（用于代码分析）
-  retention: 72h                     # 自动清理时间（0 表示不自动清理）
+  model: qwen3.5-plus                   # 与普通 Worker 一样需要指定 LLM 模型
+  runtime: openclaw                      # openclaw | copaw，复用 Worker 的运行时
+  image: ""                              # 空则使用默认 Worker 镜像
+  targets:                               # 调试目标 Worker 列表（挂载其工作目录）
+    - alpha-lead
+    - alpha-dev
+    - alpha-qa
+  matrixCredential:                      # 用于扮演特定角色拉取 Matrix 房间消息
+    userID: "@alpha-lead:domain"
+    accessToken: "syt_xxx"
+  hiclawVersion: v1.1.0                 # 内置的 hiclaw 代码版本（用于代码分析）
   accessControl:
-    allowedUsers:                    # 允许与 DebugWorker 对话的用户
-      - admin                        # 默认只有 admin
+    allowedUsers:                        # 允许与 DebugWorker 对话的用户
+      - admin
 status:
-  phase: Running
-  matrixUserID: "@debug-alpha-team:domain"
-  roomID: "!debug-room:domain"
-  mountedWorkspaces:                 # 实时挂载的工作目录
-    - worker: alpha-lead
-      ossPath: "hiclaw/hiclaw-storage/agents/alpha-lead/"
-    - worker: alpha-dev
-      ossPath: "hiclaw/hiclaw-storage/agents/alpha-dev/"
-  message: "Ready for debugging"
+  phase: Running                         # Pending/Running/Failed
 ```
+
+DebugWorker 的生命周期跟着资源走：创建 CRD 时启动容器，删除 CRD 时清理容器和 Matrix 账号。无需 retention 自动清理机制。
 
 ```go
 type DebugWorker struct {
@@ -711,15 +713,18 @@ type DebugWorker struct {
 }
 
 type DebugWorkerSpec struct {
-    Target         DebugTarget        `json:"target"`
-    HiclawVersion  string             `json:"hiclawVersion,omitempty"`
-    Retention      string             `json:"retention,omitempty"`      // default: 72h, "0" = no auto-cleanup
-    AccessControl  DebugAccessControl `json:"accessControl,omitempty"`
+    Model            string              `json:"model"`
+    Runtime          string              `json:"runtime,omitempty"`
+    Image            string              `json:"image,omitempty"`            // 空则使用默认 Worker 镜像
+    Targets          []string            `json:"targets"`                    // 要挂载工作目录的 Worker 名称列表
+    MatrixCredential *MatrixCredential   `json:"matrixCredential,omitempty"` // 用于拉取 Matrix 消息的凭证
+    HiclawVersion    string              `json:"hiclawVersion,omitempty"`
+    AccessControl    DebugAccessControl  `json:"accessControl,omitempty"`
 }
 
-type DebugTarget struct {
-    Type string `json:"type"` // team | worker
-    Name string `json:"name"`
+type MatrixCredential struct {
+    UserID      string `json:"userID"`
+    AccessToken string `json:"accessToken"`
 }
 
 type DebugAccessControl struct {
@@ -727,201 +732,238 @@ type DebugAccessControl struct {
 }
 
 type DebugWorkerStatus struct {
-    Phase             string              `json:"phase,omitempty"`
-    MatrixUserID      string              `json:"matrixUserID,omitempty"`
-    RoomID            string              `json:"roomID,omitempty"`
-    MountedWorkspaces []MountedWorkspace  `json:"mountedWorkspaces,omitempty"`
-    Message           string              `json:"message,omitempty"`
-}
-
-type MountedWorkspace struct {
-    Worker  string `json:"worker"`
-    OSSPath string `json:"ossPath"`
+    Phase string `json:"phase,omitempty"` // Pending/Running/Failed
 }
 ```
 
-### 6.3 DebugWorker 核心设计
+### 6.3 DebugWorker 与 Worker 的关系
 
-DebugWorker 的核心能力是实时访问调试目标的所有成员工作目录，并通过内置的 debug skill 生成调试日志、结合源码分析问题。
+DebugWorker Reconciler 内部创建一个标准 Worker 来承载，区别仅在于注入的技能和配置：
 
-工作目录实时挂载：
-
-```
-DebugWorker 容器内的目录结构：
-
-/root/debug/
-├── workspaces/                      # 实时同步的目标成员工作目录（通过 mc mirror）
-│   ├── alpha-lead/                  # Team Leader 的完整工作目录
-│   │   ├── SOUL.md
-│   │   ├── AGENTS.md
-│   │   ├── team-state.json
-│   │   ├── skills/
-│   │   ├── sessions/                # LLM 请求/响应日志
-│   │   └── memory/
-│   ├── alpha-dev/                   # Worker 的完整工作目录
-│   │   ├── SOUL.md
-│   │   ├── openclaw.json
-│   │   ├── skills/
-│   │   ├── sessions/
-│   │   └── memory/
-│   └── alpha-qa/
-│       └── ...
-├── matrix-export/                   # Matrix 消息导出（按需生成）
-│   ├── team-room.json
-│   ├── alpha-lead-room.json
-│   └── alpha-dev-room.json
-├── hiclaw-source/                   # hiclaw 指定版本的源码
-│   ├── manager/
-│   ├── hiclaw-controller/
-│   └── ...
-└── output/                          # debug skill 生成的分析报告
-    └── debug-report-20260403.md
-```
+| 维度 | 普通 Worker | DebugWorker 生成的 Worker |
+|------|------------|--------------------------|
+| 基础镜像 | 相同 | 相同 |
+| 运行时 | openclaw / copaw | 相同 |
+| LLM 模型 | 按需配置 | 按需配置 |
+| 内置技能 | file-sync, task-progress 等 | debug-analysis（含 matrix 导出、日志分析） |
+| 额外配置 | 无 | targets 工作目录 mc mirror + matrixCredential + hiclaw 源码 |
+| 创建方式 | 直接创建 Worker CRD | DebugWorker Reconciler 自动创建 Worker CRD |
 
 ### 6.4 DebugWorker 内置 Debug Skill
 
-DebugWorker 自带一个专门的 `debug-analysis` skill，用于生成调试日志并结合代码分析：
+debug-analysis 是一个标准的 hiclaw skill，通过 DebugWorker Reconciler 推送到 Worker 的 OSS 技能目录。
 
-```markdown
----
-name: debug-analysis
-description: Use when you need to generate debug logs, export Matrix messages,
-  analyze LLM session logs, or investigate issues by cross-referencing with hiclaw source code.
----
+debug-analysis skill 的 SKILL.md 定义：
 
-# Debug Analysis Skill
+    ---
+    name: debug-analysis
+    description: Use when you need to generate debug logs, export Matrix messages,
+      analyze LLM session logs, or investigate issues by cross-referencing with hiclaw source code.
+    ---
 
-## Available Commands
+    # Debug Analysis Skill
 
-### Export Matrix Messages
-Export recent Matrix room messages for a specific worker or the team room.
+    ## Available Commands
 
-```bash
-bash ./skills/debug-analysis/scripts/export-matrix-messages.sh \
-  --worker alpha-dev \
-  --hours 24 \
-  --output /root/debug/matrix-export/alpha-dev-room.json
-```
+    ### Sync Target Workspace
+    Pull the latest workspace of a specific target worker from OSS before analysis.
 
-### Generate Debug Log
-Aggregate session logs, Matrix messages, and state files into a structured debug report.
+    bash ./skills/debug-analysis/scripts/sync-workspace.sh --worker alpha-dev
+    bash ./skills/debug-analysis/scripts/sync-workspace.sh --all
 
-```bash
-bash ./skills/debug-analysis/scripts/generate-debug-log.sh \
-  --worker alpha-dev \
-  --hours 24 \
-  --include-sessions \
-  --include-matrix \
-  --include-state \
-  --output /root/debug/output/debug-report.md
-```
+    IMPORTANT: Always sync the target workspace BEFORE reading any files from it.
 
-### Analyze with Source Code
-The hiclaw source code is available at `/root/debug/hiclaw-source/`.
-When investigating issues, cross-reference:
-- Agent behavior rules: `manager/agent/*/AGENTS.md`
-- Skill implementations: `manager/agent/skills/*/`
-- Controller reconcile logic: `hiclaw-controller/internal/controller/`
-- Worker config generation: `hiclaw-controller/internal/executor/`
+    ### Export Matrix Messages
+    Export recent Matrix room messages using the configured matrixCredential.
 
-## Workspace Access
-All target workers' workspaces are live-synced at `/root/debug/workspaces/<worker-name>/`.
-You can directly read any file to understand current state:
-- `sessions/` — LLM request/response logs (JSON)
-- `team-state.json` / `state.json` — Task tracking state
-- `memory/` — Agent memory files
-- `openclaw.json` / `copaw.json` — Runtime configuration
-```
+    bash ./skills/debug-analysis/scripts/export-matrix-messages.sh \
+      --worker alpha-dev --hours 24 \
+      --output /root/debug/matrix-export/alpha-dev-room.json
 
-### 6.5 DebugWorker Reconciler 逻辑
+    ### Generate Debug Log
+    Aggregate session logs, Matrix messages, and state files into a structured debug report.
+
+    bash ./skills/debug-analysis/scripts/generate-debug-log.sh \
+      --worker alpha-dev --hours 24 \
+      --include-sessions --include-matrix --include-state \
+      --output /root/debug/output/debug-report.md
+
+    ### Analyze with Source Code
+    The hiclaw source code is available at /root/debug/hiclaw-source/.
+    When investigating issues, cross-reference:
+    - Agent behavior rules: manager/agent/*/AGENTS.md
+    - Skill implementations: manager/agent/skills/*/
+    - Controller reconcile logic: hiclaw-controller/internal/controller/
+    - Worker config generation: hiclaw-controller/internal/executor/
+
+    ## Workspace Access
+    Target workers' workspaces are available at /root/debug/workspaces/<worker-name>/ after syncing.
+    Always run sync-workspace.sh before reading files to ensure you have the latest data:
+    - sessions/ — LLM request/response logs (JSON)
+    - team-state.json / state.json — Task tracking state
+    - memory/ — Agent memory files
+    - openclaw.json / copaw.json — Runtime configuration
+
+### 6.5 DebugWorker OSS 权限管理
+
+普通 Worker 的 mc alias 仅有自己 OSS 空间（`agents/{name}/`）的读写权限。DebugWorker 需要额外读取多个 target Worker 的工作目录，因此 Reconciler 在创建时需要配置对应的 S3 访问策略。
+
+权限模型：
+
+| 路径 | 普通 Worker | DebugWorker |
+|------|------------|-------------|
+| `agents/{self}/` | 读写 | 读写（自己的工作目录） |
+| `agents/{target}/` | 无权限 | 只读（每个 target 的工作目录） |
+| `shared/` | 读写 | 读写 |
+| `system/` | 只读 | 只读 |
+
+实现方式（MinIO IAM Policy）：
 
 ```go
-func (r *DebugWorkerReconciler) handleCreate(ctx context.Context, dw *DebugWorker) error {
-    // 1. 解析调试目标，获取所有成员的 OSS 路径和 Matrix 凭证
-    members := r.resolveTargetMembers(ctx, dw.Spec.Target)
-    // team → leader + all workers
-    // worker → single worker
-
-    // 2. 创建 DebugWorker 的 Matrix 账号
-    matrixUser, _ := r.Matrix.RegisterUser(ctx, dw.Name)
-
-    // 3. 创建 Debug Room，邀请 allowedUsers
-    roomID, _ := r.Matrix.CreateRoom(ctx, CreateRoomRequest{
-        Name:   fmt.Sprintf("debug-%s", dw.Name),
-        Invite: append(dw.Spec.AccessControl.AllowedUsers, matrixUser.UserID),
-    })
-
-    // 4. 准备 mc mirror 配置：为每个目标成员配置实时同步
-    mirrorConfigs := []MirrorConfig{}
-    mountedWorkspaces := []MountedWorkspace{}
-    for _, member := range members {
-        mirrorConfigs = append(mirrorConfigs, MirrorConfig{
-            Source: member.OSSAgentPath,  // e.g., hiclaw/hiclaw-storage/agents/alpha-dev/
-            Dest:   fmt.Sprintf("/root/debug/workspaces/%s/", member.Name),
-        })
-        mountedWorkspaces = append(mountedWorkspaces, MountedWorkspace{
-            Worker:  member.Name,
-            OSSPath: member.OSSAgentPath,
-        })
+// DebugWorker Reconciler 在创建 Worker 之前，先创建 OSS 访问策略
+func (r *DebugWorkerReconciler) createDebugOSSPolicy(ctx context.Context, dw *DebugWorker) error {
+    // 1. 构建 policy：在普通 Worker 的基础策略上，追加 targets 的只读权限
+    targetReadPaths := []string{}
+    for _, target := range dw.Spec.Targets {
+        targetReadPaths = append(targetReadPaths,
+            fmt.Sprintf("agents/%s/*", target),
+        )
     }
 
-    // 5. 创建 DebugWorker 容器
-    //    - 内置 hiclaw 指定版本的源码
-    //    - 内置 debug-analysis skill
-    //    - 配置 mc mirror 实时同步目标工作目录
-    //    - 注入目标成员的 Matrix 凭证（用于导出消息）
-    instance, _ := r.Backend.Create(ctx, CreateWorkerRequest{
-        Name:  debugContainerName(dw.Name),
-        Image: fmt.Sprintf("hiclaw/debug-worker:%s", dw.Spec.HiclawVersion),
-        Env: map[string]string{
-            "DEBUG_TARGET_TYPE":     dw.Spec.Target.Type,
-            "DEBUG_TARGET_NAME":     dw.Spec.Target.Name,
-            "HICLAW_SOURCE_VERSION": dw.Spec.HiclawVersion,
-            "MIRROR_CONFIGS":        encodeMirrorConfigs(mirrorConfigs),
-            "TARGET_MATRIX_CREDS":   encodeMatrixCreds(members), // 用于导出消息
+    policy := S3Policy{
+        Version: "2012-10-17",
+        Statement: []S3Statement{
+            // 自己的工作目录：读写（继承普通 Worker 的默认策略）
+            {
+                Effect:   "Allow",
+                Action:   []string{"s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"},
+                Resource: []string{fmt.Sprintf("arn:aws:s3:::%s/agents/%s/*", r.Bucket, dw.Name)},
+            },
+            // targets 的工作目录：只读
+            {
+                Effect:   "Allow",
+                Action:   []string{"s3:GetObject", "s3:ListBucket"},
+                Resource: targetReadResources(r.Bucket, dw.Spec.Targets),
+            },
+            // shared 和 system 目录（同普通 Worker）
+            {
+                Effect:   "Allow",
+                Action:   []string{"s3:GetObject", "s3:PutObject", "s3:ListBucket"},
+                Resource: []string{fmt.Sprintf("arn:aws:s3:::%s/shared/*", r.Bucket)},
+            },
+            {
+                Effect:   "Allow",
+                Action:   []string{"s3:GetObject", "s3:ListBucket"},
+                Resource: []string{fmt.Sprintf("arn:aws:s3:::%s/system/*", r.Bucket)},
+            },
         },
-    })
-
-    // 6. 更新 Status
-    dw.Status.Phase = "Running"
-    dw.Status.MatrixUserID = matrixUser.UserID
-    dw.Status.RoomID = roomID
-    dw.Status.MountedWorkspaces = mountedWorkspaces
-
-    // 7. 设置自动清理定时器
-    if dw.Spec.Retention != "" && dw.Spec.Retention != "0" {
-        r.scheduleCleanup(ctx, dw)
     }
 
-    return nil
+    // 2. 在 MinIO 中创建 policy 并绑定到 DebugWorker 的 service account
+    return r.OSS.CreatePolicy(ctx, policyName(dw.Name), policy)
 }
 ```
 
-DebugWorker 容器启动后，内部运行 mc mirror 持续同步目标成员的 OSS 工作目录到本地，用户（admin/team admin）通过 Matrix 与 DebugWorker 对话，DebugWorker 利用 debug-analysis skill 读取实时数据、导出日志、结合源码分析问题。
+DebugWorker 删除时，Reconciler 通过 OwnerReference 级联删除 Worker，同时清理对应的 OSS policy 和 service account。
 
-### 6.6 Team 默认 DebugWorker
+对于阿里云 OSS（S3 兼容模式），使用 RAM Policy 实现等效的路径级权限控制，controller 通过阿里云 OpenAPI 创建临时 STS Token 并注入到 DebugWorker 容器。
 
-每个 Team 可配置默认自带一个 DebugWorker：
+### 6.6 DebugWorker Reconciler 逻辑
 
-```yaml
-apiVersion: hiclaw.io/v1beta1
-kind: Team
-metadata:
-  name: alpha-team
-spec:
-  leader:
-    name: alpha-lead
-    model: claude-sonnet-4-6
-  workers:
-    - name: alpha-dev
-      model: qwen3.5-plus
-  debug:                             # 新增：Team 级 Debug 配置
-    enabled: true                    # 默认创建 DebugWorker
-    accessControl:
-      allowedUsers: [admin]          # 默认只有 Team Admin 有权限
+```go
+func (r *DebugWorkerReconciler) handleCreate(ctx context.Context, dw *DebugWorker) error {
+    // 1. 为 DebugWorker 创建 OSS 访问策略（追加 targets 只读权限）
+    r.createDebugOSSPolicy(ctx, dw)
+
+    // 2. 构建 debug 专用的 Worker CRD
+    worker := &Worker{
+        ObjectMeta: metav1.ObjectMeta{
+            Name: dw.Name,
+            Annotations: map[string]string{
+                "hiclaw.io/debug-worker":  "true",
+                "hiclaw.io/debug-targets": strings.Join(dw.Spec.Targets, ","),
+            },
+            // OwnerReference 指向 DebugWorker，删除 DebugWorker 时自动清理 Worker
+            OwnerReferences: []metav1.OwnerReference{ownerRef(dw)},
+        },
+        Spec: WorkerSpec{
+            Model:   dw.Spec.Model,
+            Runtime: dw.Spec.Runtime,
+            Image:   dw.Spec.Image,
+            Skills:  []string{"debug-analysis"},  // 注入 debug 专用技能
+        },
+    }
+
+    // 2. 创建 Worker（复用 WorkerReconciler 的完整流程：Matrix 注册 → Higress → OSS → Backend）
+    r.Client.Create(ctx, worker)
+
+    // 3. 推送 debug 专用配置到 Worker 的 OSS 空间
+    //    - targets 列表和 OSS 前缀：用于 sync-workspace.sh 按需 mc mirror
+    //    - matrixCredential：用于 debug-analysis skill 导出消息
+    //    - hiclaw 源码：从 GitHub Release 下载指定版本
+    debugConfig := DebugConfig{
+        Targets:       dw.Spec.Targets,
+        OSSPrefix:     r.OSSPrefix,  // debug-analysis skill 用于按需 mc mirror
+    }
+    if dw.Spec.MatrixCredential != nil {
+        debugConfig.MatrixUserID = dw.Spec.MatrixCredential.UserID
+        debugConfig.MatrixAccessToken = dw.Spec.MatrixCredential.AccessToken
+    }
+    r.OSS.PutObject(ctx, agentConfigPath(dw.Name)+"/debug-config.json", debugConfig)
+
+    // 4. 推送 hiclaw 源码到 OSS
+    r.pushHiclawSource(ctx, dw.Name, dw.Spec.HiclawVersion)
+
+    // 5. 更新 Status
+    dw.Status.Phase = "Running"
+    return r.Status().Update(ctx, dw)
+}
 ```
 
-TeamReconciler 在创建 Team 时，如果 `spec.debug.enabled=true`，自动创建对应的 DebugWorker CRD。
+Worker 容器启动后，debug-analysis skill 读取 `debug-config.json` 获取 targets 列表和 OSS 前缀。排查某个 agent 时，先调用 `sync-workspace.sh` 按需 mc mirror 拉取该 target 的最新工作目录，然后读取日志和状态文件进行分析。DebugWorker 的 OSS 访问策略已在创建时配置好 targets 的只读权限。
+
+### 6.6 Team Leader 创建 DebugWorker
+
+Team Leader 通过内置的 `debug-management` skill 按需创建 DebugWorker。
+
+debug-management skill 的 SKILL.md 定义：
+
+    ---
+    name: debug-management
+    description: Use when you need to create a DebugWorker to investigate issues
+      in your team. Creates a DebugWorker that can access team members' workspaces
+      and Matrix messages.
+    ---
+
+    # Debug Management Skill
+
+    ## Create DebugWorker for your Team
+
+    # 创建一个挂载本 Team 所有成员工作目录的 DebugWorker
+    # hiclaw CLI 通过 controller API 认证调用者身份
+    # Controller 验证权限后，自动填充 targets 和 matrixCredential
+    hiclaw debug create \
+      --name debug-alpha-team \
+      --team alpha-team \
+      --allowed-users admin
+
+    # Controller 端行为：
+    # 1. 验证调用者是 alpha-team 的 Leader（通过 CallerIdentity）
+    # 2. 自动将 targets 设为 Team 内所有 Worker（Leader + Workers）
+    # 3. 自动将 matrixCredential 设为 Team Leader 的凭证
+    # 4. 创建 DebugWorker CRD
+
+    ## Delete DebugWorker
+
+    hiclaw debug delete --name debug-alpha-team
+
+hiclaw CLI 通过 controller API 创建 DebugWorker 时，controller 根据调用者身份自动处理：
+
+| 调用者 | 权限 | 自动行为 |
+|--------|------|---------|
+| Admin | 可创建任意 DebugWorker | targets 和 matrixCredential 需手动指定 |
+| Team Leader | 只能创建本 Team 的 DebugWorker | targets 自动填充为 Team 成员，matrixCredential 自动使用 Leader 凭证 |
+| Worker | 无权限 | 拒绝 |
 
 ## 7. K8s 部署与 Helm Chart
 
@@ -1372,88 +1414,85 @@ func (c *CompatibilityMatrix) CheckWorker(workerVersion string) error {
 }
 ```
 
-## 9. hiclaw CLI incluster 模式完善
+## 9. hiclaw CLI 设计
 
 ### 9.1 双模式统一
 
-```go
-// CLI 根据环境自动选择后端
-func newResourceClient() ResourceClient {
-    mode := os.Getenv("HICLAW_KUBE_MODE")
-    if mode == "" {
-        // 自动检测：如果在 K8s Pod 内，使用 incluster
-        if _, err := os.Stat("/var/run/secrets/kubernetes.io/serviceaccount/token"); err == nil {
-            mode = "incluster"
-        } else {
-            mode = "embedded"
-        }
-    }
+hiclaw CLI 统一对接 hiclaw-controller 的 HTTP API（`:8090`），由 controller 负责认证调用者身份和权限校验：
 
-    switch mode {
-    case "incluster":
-        return &K8sResourceClient{
-            client: getK8sClient(),
-        }
-    default:
-        return &MinIOResourceClient{
-            mcBinary: "mc",
-            alias:    "hiclaw",
-        }
-    }
+```go
+// CLI 通过 controller API 执行所有操作
+// 不再直接操作 K8s API 或 MinIO，统一走 controller
+type ControllerClient struct {
+    BaseURL  string // controller API 地址
+    Token    string // 调用者身份 token
+    Identity CallerIdentity
 }
 
-// ResourceClient 统一接口
-type ResourceClient interface {
-    Apply(ctx context.Context, resources []Resource) error
-    Get(ctx context.Context, kind, name string) (*Resource, error)
-    List(ctx context.Context, kind string) ([]Resource, error)
-    Delete(ctx context.Context, kind, name string) error
+// CallerIdentity 由 controller 从 token 中解析
+type CallerIdentity struct {
+    Type string // admin | manager | team-leader | worker
+    Name string // 调用者名称
+    Team string // 所属 Team（仅 team-leader 和 team worker）
 }
 ```
 
-### 9.2 K8sResourceClient 实现
+CLI 的 token 来源：
+- Admin：通过环境变量 `HICLAW_ADMIN_TOKEN` 或 controller 启动时生成的 static token
+- Manager Agent：容器启动时由 controller 注入 `HICLAW_AGENT_TOKEN`
+- Team Leader / Worker：容器启动时由 controller 注入 `HICLAW_AGENT_TOKEN`，token 中编码了身份信息（type/name/team）
 
 ```go
-type K8sResourceClient struct {
-    client client.Client
-}
+// Controller API 权限校验
+func (s *HTTPServer) authenticateAndAuthorize(r *http.Request) (*CallerIdentity, error) {
+    token := r.Header.Get("Authorization")
 
-func (c *K8sResourceClient) Apply(ctx context.Context, resources []Resource) error {
-    for _, res := range resources {
-        existing := res.DeepCopy()
-        err := c.client.Get(ctx, client.ObjectKeyFromObject(existing), existing)
-        if err != nil {
-            // 不存在，创建
-            return c.client.Create(ctx, &res)
-        }
-        // 已存在，更新 spec
-        existing.SetSpec(res.GetSpec())
-        return c.client.Update(ctx, existing)
+    // 解析 token，获取调用者身份
+    identity, err := s.TokenManager.Verify(token)
+    if err != nil {
+        return nil, fmt.Errorf("authentication failed: %w", err)
     }
-    return nil
+
+    return identity, nil
 }
 
-func (c *K8sResourceClient) Get(ctx context.Context, kind, name string) (*Resource, error) {
-    obj := newObjectByKind(kind)
-    err := c.client.Get(ctx, types.NamespacedName{
-        Name:      name,
-        Namespace: "default",
-    }, obj)
-    return obj, err
-}
+// 各 API 端点根据 identity 执行权限检查
+// 例如 POST /api/v1/debug-workers:
+//   - admin: 允许，targets 和 matrixCredential 需手动指定
+//   - team-leader: 允许，自动填充本 Team 的 targets 和 matrixCredential
+//   - worker: 拒绝
+```
 
-func (c *K8sResourceClient) List(ctx context.Context, kind string) ([]Resource, error) {
-    list := newListByKind(kind)
-    err := c.client.List(ctx, list)
-    return list.GetItems(), err
-}
+### 9.2 Controller API 端点
 
-func (c *K8sResourceClient) Delete(ctx context.Context, kind, name string) error {
-    obj := newObjectByKind(kind)
-    obj.SetName(name)
-    obj.SetNamespace("default")
-    return c.client.Delete(ctx, obj)
-}
+```
+# 资源管理
+POST   /api/v1/apply                    # 创建/更新资源（YAML body）
+GET    /api/v1/{kind}s                  # 列出资源
+GET    /api/v1/{kind}s/{name}           # 获取单个资源
+DELETE /api/v1/{kind}s/{name}           # 删除资源
+
+# Worker 生命周期
+POST   /api/v1/workers/{name}/wake      # 唤醒 Worker
+POST   /api/v1/workers/{name}/sleep     # 休眠 Worker
+POST   /api/v1/workers/{name}/ensure-ready  # 确保就绪
+GET    /api/v1/workers/idle-check?team=X    # 空闲检查
+
+# 配置推送
+POST   /api/v1/config/push              # 推送配置/技能到 Worker 工作目录
+       # ?worker=alice                   单个 Worker
+       # ?team=alpha-team                整个 Team
+       # ?all=true                       全量
+
+# Debug
+POST   /api/v1/debug-workers            # 创建 DebugWorker（controller 根据身份自动填充）
+DELETE /api/v1/debug-workers/{name}      # 删除 DebugWorker
+GET    /api/v1/debug-workers             # 列出 DebugWorker
+
+# 状态
+GET    /api/v1/status                    # 集群整体状态
+GET    /api/v1/version                   # 各组件版本信息
+GET    /healthz                          # 健康检查
 ```
 
 ### 9.3 CLI 新增命令
