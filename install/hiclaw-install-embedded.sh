@@ -86,15 +86,21 @@ HICLAW_DATA_DIR="${HICLAW_DATA_DIR:-hiclaw-data}"
 HICLAW_WORKSPACE_DIR="${HICLAW_WORKSPACE_DIR:-${HOME}/hiclaw-manager}"
 HICLAW_HOST_SHARE_DIR="${HICLAW_HOST_SHARE_DIR:-${HOME}}"
 
+# Internal port: 8080 (Higress gateway inside the container).
+# AI Gateway and FS domains use the internal port because containers
+# talk to the gateway over the container network, not via host-mapped ports.
+# Matrix domain uses the external port because it is only an identity
+# string embedded in Matrix user IDs (@user:domain:port), not an HTTP endpoint.
+HICLAW_INTERNAL_GATEWAY_PORT=8080
 HICLAW_MATRIX_DOMAIN="${HICLAW_MATRIX_DOMAIN:-matrix-local.hiclaw.io:${HICLAW_PORT_GATEWAY}}"
-HICLAW_AI_GATEWAY_DOMAIN="${HICLAW_AI_GATEWAY_DOMAIN:-aigw-local.hiclaw.io:${HICLAW_PORT_GATEWAY}}"
-HICLAW_FS_DOMAIN="${HICLAW_FS_DOMAIN:-fs-local.hiclaw.io:${HICLAW_PORT_GATEWAY}}"
+HICLAW_AI_GATEWAY_DOMAIN="${HICLAW_AI_GATEWAY_DOMAIN:-aigw-local.hiclaw.io:${HICLAW_INTERNAL_GATEWAY_PORT}}"
+HICLAW_FS_DOMAIN="${HICLAW_FS_DOMAIN:-fs-local.hiclaw.io:${HICLAW_INTERNAL_GATEWAY_PORT}}"
 
-# Normalize domain variables: append :8080 if no port specified
+# Normalize domain variables: append port if no port specified
 # (handles legacy env files that stored domains without port)
 case "${HICLAW_MATRIX_DOMAIN}" in *:*) ;; *) HICLAW_MATRIX_DOMAIN="${HICLAW_MATRIX_DOMAIN}:${HICLAW_PORT_GATEWAY}" ;; esac
-case "${HICLAW_AI_GATEWAY_DOMAIN}" in *:*) ;; *) HICLAW_AI_GATEWAY_DOMAIN="${HICLAW_AI_GATEWAY_DOMAIN}:${HICLAW_PORT_GATEWAY}" ;; esac
-case "${HICLAW_FS_DOMAIN}" in *:*) ;; *) HICLAW_FS_DOMAIN="${HICLAW_FS_DOMAIN}:${HICLAW_PORT_GATEWAY}" ;; esac
+case "${HICLAW_AI_GATEWAY_DOMAIN}" in *:*) ;; *) HICLAW_AI_GATEWAY_DOMAIN="${HICLAW_AI_GATEWAY_DOMAIN}:${HICLAW_INTERNAL_GATEWAY_PORT}" ;; esac
+case "${HICLAW_FS_DOMAIN}" in *:*) ;; *) HICLAW_FS_DOMAIN="${HICLAW_FS_DOMAIN}:${HICLAW_INTERNAL_GATEWAY_PORT}" ;; esac
 
 HICLAW_MANAGER_RUNTIME="${HICLAW_MANAGER_RUNTIME:-openclaw}"
 
@@ -107,9 +113,15 @@ NETWORK="hiclaw-net"
 # ============================================================
 
 EMBEDDED_IMAGE="${HICLAW_EMBEDDED_IMAGE:-${HICLAW_REGISTRY}/higress/hiclaw-embedded:${HICLAW_VERSION}}"
-MANAGER_IMAGE="${HICLAW_MANAGER_IMAGE:-${HICLAW_REGISTRY}/higress/hiclaw-manager:${HICLAW_VERSION}}"
 WORKER_IMAGE="${HICLAW_WORKER_IMAGE:-${HICLAW_REGISTRY}/higress/hiclaw-worker:${HICLAW_VERSION}}"
 COPAW_WORKER_IMAGE="${HICLAW_COPAW_WORKER_IMAGE:-${HICLAW_REGISTRY}/higress/hiclaw-copaw-worker:${HICLAW_VERSION}}"
+
+# Select Manager image based on runtime
+if [ "${HICLAW_MANAGER_RUNTIME}" = "copaw" ]; then
+    MANAGER_IMAGE="${HICLAW_MANAGER_IMAGE:-${HICLAW_REGISTRY}/higress/hiclaw-manager-copaw:${HICLAW_VERSION}}"
+else
+    MANAGER_IMAGE="${HICLAW_MANAGER_IMAGE:-${HICLAW_REGISTRY}/higress/hiclaw-manager:${HICLAW_VERSION}}"
+fi
 
 # ============================================================
 # Helpers
