@@ -4,19 +4,19 @@
 
 ---
 
-## Running Multiple Agents Is Easy. Making Them Collaborate Is Hard.
+## Running Multiple Agents Is Easy. Getting Them to Work Together Is the Hard Part.
 
-If you've worked with AI coding agents, you know the pattern: one agent, one task, one context window. It works great — until it doesn't.
+If you've used AI coding agents, you know the drill: one agent, one task, one context window. Works great, until it doesn't.
 
-The moment your project needs a frontend developer, a backend engineer, and a DevOps specialist working in parallel, you're back to manually coordinating everything. Copy-pasting context between agents. Tracking who's doing what in a spreadsheet. Praying they don't step on each other's code.
+The moment your project needs a frontend dev, a backend engineer, and a DevOps person all working in parallel, you're back to manual coordination. Copy-pasting context between agents. Tracking who's doing what in a spreadsheet. Hoping they don't step on each other's code.
 
-This is the gap HiClaw fills. Not another agent runtime — an orchestration system that lets multiple agents collaborate like a real engineering team, built on the same declarative principles that made Kubernetes the standard for container orchestration.
+That's the problem HiClaw solves. It's not another agent runtime. It's an orchestration system that lets multiple agents collaborate like a real engineering team, built on the same declarative principles that made Kubernetes the standard for container orchestration.
 
 ---
 
 ## From Container Orchestration to Agent Orchestration
 
-If you're familiar with the Kubernetes ecosystem, the evolution of AI agents should feel familiar:
+If you know the Kubernetes ecosystem, the evolution of AI agents should feel familiar:
 
 | Container Ecosystem | Agent Ecosystem | Problem Solved |
 |---|---|---|
@@ -24,22 +24,22 @@ If you're familiar with the Kubernetes ecosystem, the evolution of AI agents sho
 | Docker Compose (single-host orchestration) | NemoClaw (single-agent sandbox) | How to manage runtime lifecycle and config |
 | **Kubernetes (cluster orchestration)** | **HiClaw (multi-agent collaboration)** | How to make multiple work units function as a coordinated system |
 
-Just as Kubernetes doesn't replace Docker but orchestrates containers on top of it, HiClaw doesn't replace agent runtimes — it orchestrates collaboration on top of them.
+Kubernetes didn't replace Docker. It orchestrated containers on top of it. HiClaw does the same thing for agent runtimes: it orchestrates collaboration on top of them.
 
-But there's a critical distinction that goes beyond the analogy: **orchestration vs. collaboration**.
+But there's a distinction here that matters more than the analogy itself: **orchestration and collaboration are not the same thing**.
 
-- **Orchestration** manages agent lifecycle, resource allocation, and security isolation — "how to run multiple agents"
-- **Collaboration** defines organizational structure, communication permissions, task delegation, and shared state — "how multiple agents work together"
+- **Orchestration** manages agent lifecycle, resource allocation, and security isolation. It answers "how to run multiple agents"
+- **Collaboration** defines organizational structure, communication permissions, task delegation, and shared state. It answers "how multiple agents work together"
 
-Most multi-agent systems today stop at orchestration. HiClaw goes further.
+Most multi-agent systems today stop at orchestration. HiClaw takes it further.
 
 ---
 
 ## Declarative Agent Teams: CRDs for AI
 
-HiClaw's resource model will feel immediately familiar to anyone who's written a Kubernetes manifest. Four CRD-style resource types, all under `apiVersion: hiclaw.io/v1beta1`:
+If you've written a Kubernetes manifest, HiClaw's resource model will feel right at home. Four CRD-style resource types, all under `apiVersion: hiclaw.io/v1beta1`:
 
-### Worker — The Pod of Agent Orchestration
+### Worker: The Pod of Agent Orchestration
 
 ```yaml
 apiVersion: hiclaw.io/v1beta1
@@ -55,9 +55,9 @@ spec:
     You are a frontend engineer specializing in React...
 ```
 
-Each Worker maps to: a Docker container (or K8s Pod) + a Matrix communication account + a MinIO storage space + a Gateway Consumer Token. Stateless, disposable, rebuildable — just like a Pod.
+Each Worker maps to: a Docker container (or K8s Pod) + a Matrix communication account + a MinIO storage space + a Gateway Consumer Token. Stateless, disposable, rebuildable. Just like a Pod.
 
-### Team — The Deployment of Agent Orchestration
+### Team: The Deployment of Agent Orchestration
 
 ```yaml
 apiVersion: hiclaw.io/v1beta1
@@ -82,15 +82,15 @@ spec:
   peerMentions: true
 ```
 
-When you `hiclaw apply` a Team, the Controller automatically provisions:
+When you `hiclaw apply` a Team, the Controller automatically provisions this communication topology:
 
-- **Leader Room**: Manager + Admin + Leader — the delegation channel
-- **Team Room**: Leader + Admin + Workers — the collaboration space (Manager excluded)
-- **Worker Rooms**: Leader + Admin + individual Worker — private channels
+- **Leader Room**: Manager + Admin + Leader, the delegation channel
+- **Team Room**: Leader + Admin + Workers, the collaboration space (Manager is not in here)
+- **Worker Rooms**: Leader + Admin + individual Worker, private channels
 
-The key design: **Manager never enters the Team Room**. This creates a delegation boundary — the Manager talks to the Leader, the Leader coordinates the team. No bottleneck.
+The key design decision: **Manager never enters the Team Room**. This creates a delegation boundary. Manager talks to the Leader, Leader coordinates the team. No bottleneck, no matter how big the organization gets.
 
-### Human — RBAC for People
+### Human: RBAC for People
 
 ```yaml
 apiVersion: hiclaw.io/v1beta1
@@ -103,13 +103,13 @@ spec:
   accessibleTeams: [frontend-team]
 ```
 
-Three permission levels (Admin / Team / Worker) control who can talk to whom — enforced at the Matrix protocol level via `groupAllowFrom` configuration.
+Three permission levels (Admin / Team / Worker) control who can talk to whom, enforced at the Matrix protocol level via `groupAllowFrom` configuration.
 
 ---
 
 ## The Three-Tier Organization
 
-HiClaw's architecture maps to real enterprise team structures:
+HiClaw's architecture maps directly to real enterprise team structures:
 
 ```
 Admin (Human)
@@ -128,11 +128,11 @@ Admin (Human)
         └── Level 3: Worker-only
 ```
 
-A few design principles worth highlighting:
+A few design choices worth calling out:
 
-- **Team Leaders are Workers** — same container, same runtime, different SOUL and skills. Like how K8s control plane nodes and worker nodes run the same kubelet.
-- **Manager doesn't penetrate Teams** — it only talks to Leaders, never directly to team Workers. This prevents the Manager from becoming a bottleneck as the organization scales.
-- **Communication permissions are declarative** — the `groupAllowFrom` matrix is generated by the Controller based on the Team/Human resource definitions. No manual wiring.
+- **Team Leaders are just Workers.** Same container, same runtime, different SOUL and skills. Think of how K8s control plane nodes and worker nodes both run the same kubelet.
+- **Manager doesn't penetrate Teams.** It only talks to Leaders, never directly to team Workers. As the organization scales, Manager doesn't become a bottleneck.
+- **Communication permissions are declarative.** The `groupAllowFrom` matrix is generated by the Controller based on Team/Human resource definitions. No manual wiring needed.
 
 ---
 
@@ -173,19 +173,19 @@ Two deployment modes, one Reconciler:
 | Embedded | kine + SQLite | Docker containers | Developer local, small teams |
 | Incluster | K8s native etcd | K8s Pods | Enterprise, cloud deployment |
 
-The Worker Backend abstraction is analogous to Kubernetes CRI — the orchestration layer doesn't care whether Workers run as Docker containers or K8s Pods.
+The Worker Backend abstraction works like Kubernetes CRI: the orchestration layer doesn't care whether Workers run as Docker containers or K8s Pods.
 
 ---
 
 ## Transparent Communication via Matrix Protocol
 
-Most multi-agent systems use internal RPC or message queues for agent communication. The problem? It's a black box. You can't see what agents are saying to each other, and you can't intervene without building custom tooling.
+Most multi-agent systems use internal RPC or message queues for agent communication. The problem? It's a black box. You can't see what agents are saying to each other, and intervening means building custom tooling.
 
-HiClaw uses the [Matrix protocol](https://matrix.org/) — a decentralized, open IM standard — as its communication layer:
+HiClaw uses the [Matrix protocol](https://matrix.org/), a decentralized open IM standard, as its communication layer:
 
 - **Transparent**: All agent-to-agent communication happens in Matrix Rooms. Humans see everything in real-time.
-- **Human-in-the-Loop by default**: Humans use the same IM client (Element Web, FluffyChat, or any Matrix client). Just @mention an agent to intervene.
-- **Auditable**: Messages are naturally persisted. Complete audit trail out of the box.
+- **Human-in-the-Loop by default**: Humans use the same IM client (Element Web, FluffyChat, or any Matrix client). Just @mention an agent to jump in.
+- **Naturally auditable**: Messages are persisted automatically. Complete audit trail out of the box.
 - **No vendor lock-in**: Matrix is a decentralized open protocol. Self-host, federate, or run standalone.
 
 Here's what collaboration actually looks like:
@@ -195,26 +195,26 @@ Here's what collaboration actually looks like:
 Leader: @alice Implement password validation, minimum 8 characters
 Alice:  On it...
 
-[Admin observes in the same room, decides to adjust]
+[Admin sees this in the same room, decides to adjust]
 Admin:  @alice Hold on, change the rule to minimum 12 chars with uppercase + special characters
 Alice:  Got it, updating the validation rules
 Leader: Noted, I'll update the task spec
 ```
 
-No hidden agent-to-agent calls. Every decision is visible and intervenable.
+No hidden agent-to-agent calls. Every decision is out in the open, and you can step in anytime.
 
 ---
 
 ## Secure LLM & MCP Access with Higress (CNCF Sandbox)
 
-In a multi-agent system, credential management becomes critical. If every Worker holds real API keys, a single compromised agent exposes everything.
+In a multi-agent system, credential management is a big deal. If every Worker holds real API keys, one compromised agent and you're exposed.
 
-HiClaw's security layer is powered by [Higress](https://github.com/alibaba/higress) — a **CNCF Sandbox project**, an Envoy-based cloud-native AI Gateway with native support for LLM proxying, MCP Server hosting, and fine-grained consumer authentication.
+HiClaw's security layer is handled by [Higress](https://github.com/alibaba/higress), a **CNCF Sandbox project**. It's an Envoy-based cloud-native AI Gateway with native support for LLM proxying, MCP Server hosting, and fine-grained consumer authentication.
 
 ### Core Principle: Credentials Never Reach the Agent
 
 ```
-Worker (holds only Consumer Token: GatewayKey)
+Worker (holds only a Consumer Token: GatewayKey)
     → Higress AI Gateway
         ├── key-auth WASM plugin validates Consumer Token
         ├── Checks if Consumer is in the target Route's allowedConsumers
@@ -225,7 +225,7 @@ Worker (holds only Consumer Token: GatewayKey)
             └── Other external services
 ```
 
-Real credentials exist only inside the Gateway. Agents only hold a revocable Consumer Token. Even if an agent is compromised, the attacker gets nothing reusable.
+Real credentials only exist inside the Gateway. Agents hold a revocable Consumer Token and nothing else. Even if an agent gets compromised, the attacker walks away with nothing reusable.
 
 ### LLM Access Security
 
@@ -235,11 +235,11 @@ When a Worker is created, the Controller automatically:
 2. Registers a Gateway Consumer (`worker-{name}`) with key-auth BEARER binding
 3. Adds the Consumer to all AI Route `allowedConsumers` lists
 
-The Worker's API endpoint points to the Gateway address, not the real LLM provider. The Worker has no idea the real API key exists.
+The Worker's API endpoint points to the Gateway address, not the real LLM provider. The Worker has no idea the real API key even exists.
 
 ### MCP Server Security
 
-MCP (Model Context Protocol) Servers give agents tool-calling capabilities — GitHub operations, database queries, etc. In a multi-agent setup, multiple Workers may need the same GitHub repo access, but none should hold the GitHub PAT directly.
+MCP (Model Context Protocol) Servers give agents tool-calling capabilities like GitHub operations, database queries, and so on. In a multi-agent setup, several Workers might need access to the same GitHub repo, but you don't want each of them holding a GitHub PAT.
 
 HiClaw solves this through Higress-hosted MCP Servers:
 
@@ -259,33 +259,33 @@ Worker calls MCP tool:
 
 | Control Dimension | Mechanism | Example |
 |---|---|---|
-| Per-Worker LLM access | AI Route allowedConsumers | Worker A can use GPT-4, Worker B only GPT-3.5 |
-| Per-Worker MCP access | MCP Server allowedConsumers | Worker A can access GitHub, Worker B cannot |
+| Per-Worker LLM access | AI Route allowedConsumers | Worker A can use GPT-4, Worker B only gets GPT-3.5 |
+| Per-Worker MCP access | MCP Server allowedConsumers | Worker A can access GitHub, Worker B can't |
 | Dynamic permission changes | Modify allowedConsumers list | Manager can grant/revoke MCP access in real-time |
 | Instant revocation | Remove from allowedConsumers | No credential rotation needed, takes effect in 1-2 seconds (WASM hot-sync) |
 
-This permission model mirrors K8s ServiceAccount + RBAC — Consumer Token is the ServiceAccount Token, `allowedConsumers` is the RBAC Policy.
+This permission model follows the same logic as K8s ServiceAccount + RBAC. Consumer Token is the ServiceAccount Token, `allowedConsumers` is the RBAC Policy.
 
 ### Why Higress
 
-As a CNCF Sandbox project, Higress brings:
+As a CNCF Sandbox project, Higress brings a few key things to the table:
 
-- **AI-Native Gateway**: Native LLM proxying (multi-provider routing, token rate limiting, fallback) and MCP Server hosting — not bolted on via generic API gateway plugins
+- **AI-Native Gateway**: Native LLM proxying (multi-provider routing, token rate limiting, fallback) and MCP Server hosting, not bolted on through generic API gateway plugins
 - **WASM Plugin System**: Security plugins run as WASM, hot-updatable without restart, permission changes take effect in seconds
-- **Envoy Core**: Inherits Envoy's performance and observability, natively integrates with CNCF ecosystem (Prometheus, OpenTelemetry)
+- **Envoy Core**: Inherits Envoy's performance and observability, natively integrates with the CNCF ecosystem (Prometheus, OpenTelemetry)
 
 ---
 
 ## Kubernetes Concept Mapping
 
-For the K8s-native audience, here's how HiClaw concepts map:
+A cheat sheet for K8s veterans:
 
 | Kubernetes | HiClaw | Notes |
 |---|---|---|
 | Pod | Worker | Smallest schedulable unit, stateless, disposable |
 | Deployment | Team | Manages desired state of a group of Workers |
 | Service | Matrix Room | Communication abstraction between Workers |
-| ServiceAccount + RBAC | Consumer Token + allowedConsumers | Identity authentication + fine-grained access control |
+| ServiceAccount + RBAC | Consumer Token + allowedConsumers | Identity auth + fine-grained access control |
 | CRD | Worker/Team/Human/Manager | Declarative resource definitions |
 | Controller + Reconcile Loop | hiclaw-controller | Continuously converges actual state to desired state |
 | Ingress / Gateway API | Higress Route (CNCF Sandbox) | LLM/MCP access entry + credential injection |
@@ -299,7 +299,7 @@ If you can write a Kubernetes manifest, you can orchestrate an AI agent team.
 
 ## Comparison with NVIDIA NemoClaw
 
-NemoClaw is NVIDIA's open-source reference stack for running agents in secure OpenShell sandboxes. It's excellent at what it does — but it solves a fundamentally different problem.
+NemoClaw is NVIDIA's open-source reference stack for running agents in secure OpenShell sandboxes. It does its job well, but it's solving a different problem at a different layer.
 
 | Dimension | NemoClaw | HiClaw |
 |---|---|---|
@@ -308,7 +308,7 @@ NemoClaw is NVIDIA's open-source reference stack for running agents in secure Op
 | LLM security | OpenShell intercepts inference, agent never sees credentials | Higress (CNCF) Gateway proxy, Consumer Token auth |
 | MCP Server security | No centralized management | Higress-hosted MCP Servers, per-Worker fine-grained authorization |
 | Dynamic permissions | Requires sandbox rebuild | Modify allowedConsumers, takes effect in seconds |
-| Shared state | Each sandbox independent | MinIO shared filesystem + task state machine |
+| Shared state | Each sandbox is independent | MinIO shared filesystem + task state machine |
 | Team structure | None | Team CRD, declarative definition |
 | Human-in-the-Loop | CLI interaction only | Matrix Room real-time observation and intervention |
 | Configuration model | Blueprint YAML (single agent) | K8s CRD-style (Worker/Team/Human/Manager) |
@@ -330,29 +330,29 @@ NemoClaw and HiClaw solve different layers of the agent stack:
 └──────────────────────────────────────────────┘
 ```
 
-HiClaw's Worker Backend abstraction makes it possible to integrate NemoClaw as the underlying runtime — combining NemoClaw's sandbox security with HiClaw's collaboration orchestration. This is analogous to Kubernetes using CRI to plug in different container runtimes (containerd, CRI-O) — the orchestration layer doesn't care about the runtime implementation.
+HiClaw's Worker Backend abstraction makes it possible to plug in NemoClaw as the underlying runtime, combining NemoClaw's sandbox security with HiClaw's collaboration orchestration. Same idea as Kubernetes using CRI to plug in different container runtimes (containerd, CRI-O): the orchestration layer doesn't care how the runtime is implemented.
 
 ---
 
 ## Getting Started
 
-**Prerequisites**: Docker Desktop (Windows/macOS) or Docker Engine (Linux). 2 CPU + 4 GB RAM minimum.
+You'll need Docker Desktop (Windows/macOS) or Docker Engine (Linux). Minimum 2 CPU + 4 GB RAM.
 
 ```bash
 bash <(curl -sSL https://higress.ai/hiclaw/install.sh)
 ```
 
-Open http://127.0.0.1:18088, log in to Element Web, and start talking to your Manager Agent. That's it — AI gateway, Matrix server, file storage, web client, all running on your machine.
+Open http://127.0.0.1:18088, log in to Element Web, and start chatting with your Manager Agent. That's it. AI gateway, Matrix server, file storage, web client, all running on your machine.
 
 ---
 
 ## What's Next
 
 - **ZeroClaw**: Rust-based ultra-lightweight runtime, 3.4MB binary, <10ms cold start
-- **NanoClaw**: Minimal agent runtime, <4000 LOC
-- **Team Management Center**: Visual dashboard for observing and controlling agent teams
+- **NanoClaw**: Minimal agent runtime, under 4000 lines of code
+- **Team Management Center**: Visual dashboard for watching and controlling agent teams
 - **Incluster Helm Chart**: Production-grade K8s deployment
-- **NemoClaw Runtime Integration**: Combining sandbox security with collaboration orchestration
+- **NemoClaw Runtime Integration**: Sandbox security meets collaboration orchestration
 
 ---
 
