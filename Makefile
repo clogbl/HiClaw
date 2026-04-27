@@ -16,7 +16,8 @@ GOFLAGS := -trimpath
 LDFLAGS := -ldflags "-X main.Version=$(VERSION) -X main.Commit=$(COMMIT) -X main.BuildDate=$(BUILD_DATE) -s -w"
 
 # Docker settings
-REGISTRY ?= ghcr.io/agentscope-ai
+# Personal fork: push to my own registry instead of the upstream one
+REGISTRY ?= ghcr.io/myusername
 IMAGE_NAME := $(REGISTRY)/$(PROJECT_NAME)
 IMAGE_TAG ?= $(VERSION)
 
@@ -108,5 +109,3 @@ tidy:
 help:
 	@echo "Usage: make [target]"
 	@echo ""
-	@echo "Targets:"
-	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/## /  /' | column -t -s ':'
