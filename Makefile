@@ -85,10 +85,10 @@ docker-build:
 		.
 
 ## docker-push: Push Docker image to registry
+# Note: only push the versioned tag from my fork, skip 'latest' to avoid confusion
 docker-push: docker-build
 	@echo "Pushing Docker image $(IMAGE_NAME):$(IMAGE_TAG)..."
 	docker push $(IMAGE_NAME):$(IMAGE_TAG)
-	docker push $(IMAGE_NAME):latest
 
 ## helm-lint: Lint Helm chart
 helm-lint:
@@ -105,7 +105,4 @@ tidy:
 	@echo "Tidying Go modules..."
 	$(GO) mod tidy
 
-## help: Display this help message
-help:
-	@echo "Usage: make [target]"
-	@echo ""
+## help: Displ
