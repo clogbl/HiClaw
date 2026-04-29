@@ -105,4 +105,7 @@ tidy:
 	@echo "Tidying Go modules..."
 	$(GO) mod tidy
 
-## help: Displ
+## help: Show available targets
+help:
+	@echo "Available targets:"
+	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/^## /  /'
