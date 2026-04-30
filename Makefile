@@ -105,7 +105,8 @@ tidy:
 	@echo "Tidying Go module dependencies..."
 	$(GO) mod tidy
 
-## help: Display available targets
+## help: Show this help message
 help:
-	@echo "Available targets:"
+	@echo "Usage: make [target]"
+	@echo ""
 	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/## /  /' | column -t -s ':'
