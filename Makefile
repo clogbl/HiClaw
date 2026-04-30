@@ -102,10 +102,10 @@ generate:
 
 ## tidy: Tidy Go module dependencies
 tidy:
-	@echo "Tidying Go modules..."
+	@echo "Tidying Go module dependencies..."
 	$(GO) mod tidy
 
-## help: Show available targets
+## help: Display available targets
 help:
 	@echo "Available targets:"
-	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/^## /  /'
+	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/## /  /' | column -t -s ':'
